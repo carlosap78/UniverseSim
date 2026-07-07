@@ -32,32 +32,32 @@ const canvasInfo = await page.evaluate(() => {
   };
 });
 
-const labTitle = await page.locator('#mode-title').innerText();
-const desktopLab = await analyzeScreenshot('universesim-vector-lab.png', {
+const fallTitle = await page.locator('#mode-title').innerText();
+const desktopFall = await analyzeScreenshot('universesim-tidal-fall.png', {
   x: 390,
   y: 110,
   width: 670,
   height: 560,
 });
 
-await page.getByRole('tab', { name: 'Planos' }).click();
+await page.getByRole('tab', { name: 'Separación' }).click();
 await page.waitForTimeout(900);
-const planesTitle = await page.locator('#mode-title').innerText();
-const desktopPlanes = await analyzeScreenshot('universesim-vector-planes.png', {
+const separationTitle = await page.locator('#mode-title').innerText();
+const desktopSeparation = await analyzeScreenshot('universesim-tidal-separation.png', {
   x: 350,
   y: 110,
   width: 760,
   height: 560,
 });
 
-await page.getByRole('tab', { name: 'Formulas' }).click();
+await page.getByRole('tab', { name: 'Fórmulas' }).click();
 await page.waitForTimeout(900);
-await page.selectOption('#object-select', 'front-z');
+await page.selectOption('#object-select', 'left');
 await page.waitForTimeout(500);
 const formulaTitle = await page.locator('#mode-title').innerText();
 const formulaText = await page.locator('#formula-accel').innerText();
 const selectedObjectText = await page.locator('#object-readout').innerText();
-const desktopFormula = await analyzeScreenshot('universesim-vector-formulas.png', {
+const desktopFormula = await analyzeScreenshot('universesim-tidal-formulas.png', {
   x: 350,
   y: 110,
   width: 760,
@@ -66,7 +66,7 @@ const desktopFormula = await analyzeScreenshot('universesim-vector-formulas.png'
 
 await page.setViewportSize({ width: 390, height: 844 });
 await page.waitForTimeout(800);
-const mobileShot = await analyzeScreenshot('universesim-vector-mobile.png', {
+const mobileShot = await analyzeScreenshot('universesim-tidal-mobile.png', {
   x: 18,
   y: 134,
   width: 354,
@@ -108,8 +108,8 @@ await browser.close();
 
 const result = {
   canvasInfo,
-  modeTexts: { labTitle, planesTitle, formulaTitle, formulaText, selectedObjectText },
-  screenshots: [desktopLab, desktopPlanes, desktopFormula, mobileShot],
+  modeTexts: { fallTitle, separationTitle, formulaTitle, formulaText, selectedObjectText },
+  screenshots: [desktopFall, desktopSeparation, desktopFormula, mobileShot],
   overlapReport,
   consoleErrors,
 };
@@ -120,16 +120,16 @@ if (!canvasInfo || canvasInfo.width < 700 || canvasInfo.height < 500) {
   throw new Error('Canvas dimensions are too small');
 }
 
-if (!/Vectores/.test(labTitle) || !/planos/i.test(planesTitle) || !/Formula/i.test(formulaTitle)) {
+if (!/Objetos/.test(fallTitle) || !/Separación/.test(separationTitle) || !/Desviación/.test(formulaTitle)) {
   throw new Error(`Unexpected mode titles: ${JSON.stringify(result.modeTexts)}`);
 }
 
-if (!formulaText.includes('a =')) {
-  throw new Error('Formula panel did not update acceleration text');
+if (!formulaText.includes('Δa =')) {
+  throw new Error('Formula panel did not update delta acceleration text');
 }
 
-if (!selectedObjectText.includes('plano Z+')) {
-  throw new Error(`Object selector did not update the measured object: ${selectedObjectText}`);
+if (!selectedObjectText.includes('izquierda')) {
+  throw new Error(`Object selector did not update the measured neighbor: ${selectedObjectText}`);
 }
 
 for (const shot of result.screenshots) {

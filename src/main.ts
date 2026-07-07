@@ -3,142 +3,124 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { createIcons, Home, Pause, Play, RotateCcw } from 'lucide';
 
-type ViewMode = 'lab' | 'planes' | 'formula';
-type ProjectileKind = 'apple' | 'sphere' | 'cube' | 'cone' | 'front' | 'back';
-type PlaneKind = 'xz' | 'xy' | 'yz';
+type ViewMode = 'fall' | 'separation' | 'formula';
+type BodyKind = 'apple' | 'top' | 'bottom' | 'left' | 'right';
 
-type ProjectileConfig = {
+type BodyConfig = {
   id: string;
   name: string;
   shortName: string;
-  kind: ProjectileKind;
+  kind: BodyKind;
   color: number;
-  direction: THREE.Vector3;
-  offset: THREE.Vector3;
+  initialOffset: THREE.Vector3;
 };
 
-type Projectile = {
-  config: ProjectileConfig;
+type Body = {
+  config: BodyConfig;
   mesh: THREE.Group;
   label: THREE.Sprite;
   position: THREE.Vector3;
   velocity: THREE.Vector3;
   acceleration: THREE.Vector3;
   velocityArrow: THREE.ArrowHelper;
-  accelerationArrow: THREE.ArrowHelper;
-  positionArrow: THREE.ArrowHelper;
+  separationArrow: THREE.ArrowHelper;
+  deltaAccelerationArrow: THREE.ArrowHelper;
   trail: THREE.Line;
   trailPoints: THREE.Vector3[];
-  impacted: boolean;
+  initialSeparation: number;
 };
 
 type CurvaturePlane = THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> & {
   userData: {
     base: Float32Array;
-    kind: PlaneKind;
   };
 };
 
 const canvas = document.querySelector<HTMLCanvasElement>('#universe-canvas');
-if (!canvas) {
-  throw new Error('Canvas #universe-canvas not found');
-}
+if (!canvas) throw new Error('Canvas #universe-canvas not found');
 
-const centralRadius = 3.15;
-const baseMu = 24;
-const visualC = 34;
-const maxTrailPoints = 210;
-const launchOrigin = new THREE.Vector3(0, 6.9, 0);
+const centralRadius = 3.2;
+const baseMu = 38;
+const maxTrailPoints = 260;
+const clusterStart = new THREE.Vector3(0, 12.2, 0);
+const separationDistance = 1.35;
+const visualC = 38;
 
-const projectileConfigs: ProjectileConfig[] = [
+const bodyConfigs: BodyConfig[] = [
   {
-    id: 'apple-up',
-    name: 'Manzana arriba',
-    shortName: 'arriba',
+    id: 'apple',
+    name: 'Manzana de referencia',
+    shortName: 'manzana',
     kind: 'apple',
     color: 0xff5548,
-    direction: new THREE.Vector3(0, 1, 0),
-    offset: new THREE.Vector3(-0.42, 0, 0),
+    initialOffset: new THREE.Vector3(0, 0, 0),
   },
   {
-    id: 'sphere-down',
-    name: 'Esfera abajo',
+    id: 'top',
+    name: 'Objeto arriba de la manzana',
+    shortName: 'arriba',
+    kind: 'top',
+    color: 0xffd166,
+    initialOffset: new THREE.Vector3(0, separationDistance, 0),
+  },
+  {
+    id: 'bottom',
+    name: 'Objeto abajo de la manzana',
     shortName: 'abajo',
-    kind: 'sphere',
+    kind: 'bottom',
     color: 0x4cc9f0,
-    direction: new THREE.Vector3(0, -1, 0),
-    offset: new THREE.Vector3(0.42, 0, 0),
+    initialOffset: new THREE.Vector3(0, -separationDistance, 0),
   },
   {
-    id: 'cube-left',
-    name: 'Cubo izquierda',
+    id: 'left',
+    name: 'Objeto izquierda de la manzana',
     shortName: 'izquierda',
-    kind: 'cube',
-    color: 0xffc857,
-    direction: new THREE.Vector3(-1, 0, 0),
-    offset: new THREE.Vector3(0, 0, -0.42),
-  },
-  {
-    id: 'cone-right',
-    name: 'Cono derecha',
-    shortName: 'derecha',
-    kind: 'cone',
-    color: 0x7bd88f,
-    direction: new THREE.Vector3(1, 0, 0),
-    offset: new THREE.Vector3(0, 0, 0.42),
-  },
-  {
-    id: 'front-z',
-    name: 'Capsula plano Z+',
-    shortName: 'plano Z+',
-    kind: 'front',
+    kind: 'left',
     color: 0xb388ff,
-    direction: new THREE.Vector3(0, 0, 1),
-    offset: new THREE.Vector3(-0.28, 0, 0.72),
+    initialOffset: new THREE.Vector3(-separationDistance, 0, 0),
   },
   {
-    id: 'back-z',
-    name: 'Prisma plano Z-',
-    shortName: 'plano Z-',
-    kind: 'back',
-    color: 0x5ea1ff,
-    direction: new THREE.Vector3(0, 0, -1),
-    offset: new THREE.Vector3(0.28, 0, -0.72),
+    id: 'right',
+    name: 'Objeto derecha de la manzana',
+    shortName: 'derecha',
+    kind: 'right',
+    color: 0x7bd88f,
+    initialOffset: new THREE.Vector3(separationDistance, 0, 0),
   },
 ];
 
 const state = {
-  view: 'lab' as ViewMode,
+  view: 'fall' as ViewMode,
   paused: false,
   simTime: 0,
   lastFrame: performance.now(),
+  commonFallSpeed: 0.6,
   massScale: 1,
-  launchSpeed: 3.2,
   curvatureStrength: 1,
   timeScale: 1,
-  selectedId: 'apple-up',
+  selectedId: 'top',
   showVelocity: true,
-  showAcceleration: true,
-  showPosition: true,
+  showDeltaAcceleration: true,
+  showSeparation: true,
   showField: true,
   showTrails: true,
 };
 
 const copyByView: Record<ViewMode, { title: string; copy: string }> = {
-  lab: {
-    title: 'Vectores de cada lanzamiento',
+  fall: {
+    title: 'Objetos alrededor de una manzana',
     copy:
-      'Todos los objetos salen desde la misma region con velocidades iniciales distintas. La flecha amarilla es v, la roja es a hacia la masa y la azul es r desde el centro.',
+      'La manzana y sus vecinos empiezan juntos en caída libre. Los objetos arriba, abajo, izquierda y derecha no caen igual porque el campo cambia con la posición.',
   },
-  planes: {
-    title: 'Vectores proyectados en otros planos',
+  separation: {
+    title: 'Separación vista desde la manzana',
     copy:
-      'Las mallas XZ, XY e YZ muestran la misma curvatura desde cortes diferentes. Las flechas pequeñas son el campo gravitatorio proyectado sobre cada plano.',
+      'La cámara sigue a la manzana. El vecino de abajo se aleja hacia la masa, el de arriba se queda atrás y los laterales tienden a comprimirse hacia el eje radial.',
   },
   formula: {
-    title: 'Formula y geometria conectadas',
+    title: 'Desviación geodésica interactiva',
     copy:
-      'La simulacion usa la aproximacion de campo debil: a = -mu r/|r|^3 y una metrica visual con Phi/c². Cambia masa, velocidad y curvatura para ver como cambian los numeros.',
+      'La diferencia entre aceleraciones explica la separación: Δa = a_vecino - a_manzana. En campo débil se aproxima por el tensor tidal T aplicado a ξ.',
   },
 };
 
@@ -147,8 +129,8 @@ const elements = {
   resetSim: must<HTMLButtonElement>('#reset-sim'),
   cameraHome: must<HTMLButtonElement>('#camera-home'),
   objectSelect: must<HTMLSelectElement>('#object-select'),
-  launchSpeed: must<HTMLInputElement>('#launch-speed'),
-  launchSpeedValue: must<HTMLOutputElement>('#launch-speed-value'),
+  fallSpeed: must<HTMLInputElement>('#launch-speed'),
+  fallSpeedValue: must<HTMLOutputElement>('#launch-speed-value'),
   massScale: must<HTMLInputElement>('#mass-scale'),
   massScaleValue: must<HTMLOutputElement>('#mass-scale-value'),
   curvatureStrength: must<HTMLInputElement>('#curvature-strength'),
@@ -156,8 +138,8 @@ const elements = {
   timeScale: must<HTMLInputElement>('#time-scale'),
   timeScaleValue: must<HTMLOutputElement>('#time-scale-value'),
   showVelocity: must<HTMLInputElement>('#show-velocity'),
-  showAcceleration: must<HTMLInputElement>('#show-acceleration'),
-  showPosition: must<HTMLInputElement>('#show-position'),
+  showDeltaAcceleration: must<HTMLInputElement>('#show-acceleration'),
+  showSeparation: must<HTMLInputElement>('#show-position'),
   showField: must<HTMLInputElement>('#show-field'),
   showTrails: must<HTMLInputElement>('#show-trails'),
   timeReadout: must<HTMLElement>('#time-readout'),
@@ -193,22 +175,23 @@ scene.background = new THREE.Color(0x020308);
 scene.fog = new THREE.FogExp2(0x020308, 0.012);
 
 const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.02, 900);
-camera.position.set(18, 13, 24);
+camera.position.set(16, 14, 24);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.07;
 controls.minDistance = 5;
 controls.maxDistance = 80;
-controls.target.set(0, 2, 0);
+controls.target.set(0, 5.5, 0);
 
 const root = new THREE.Group();
 const planeGroup = new THREE.Group();
 const fieldGroup = new THREE.Group();
-const projectileGroup = new THREE.Group();
+const bodyGroup = new THREE.Group();
 const labelGroup = new THREE.Group();
+const separationGroup = new THREE.Group();
 scene.add(root);
-root.add(planeGroup, fieldGroup, projectileGroup, labelGroup);
+root.add(planeGroup, fieldGroup, bodyGroup, labelGroup, separationGroup);
 
 scene.add(new THREE.AmbientLight(0x66707f, 1.9));
 const keyLight = new THREE.DirectionalLight(0xffffff, 3.4);
@@ -221,40 +204,38 @@ scene.add(rimLight);
 const starField = createStarField();
 const axes = createAxes();
 const centralMass = createCentralMass();
-const launchRing = createLaunchRing();
-const curvaturePlanes = [
-  createCurvaturePlane('xz', 0xc9b458, 0.28),
-  createCurvaturePlane('xy', 0x62c9d8, 0.18),
-  createCurvaturePlane('yz', 0x9f86ff, 0.18),
-];
+const startFrame = createStartFrame();
+const curvaturePlane = createCurvaturePlane();
 const fieldArrows = createFieldArrows();
-const projectiles = projectileConfigs.map(createProjectile);
+const bodies = bodyConfigs.map(createBody);
+const connectorLines = new Map<string, THREE.Line>();
 
-root.add(starField, axes, centralMass, launchRing);
-planeGroup.add(...curvaturePlanes);
+root.add(starField, axes, centralMass, startFrame);
+planeGroup.add(curvaturePlane);
 fieldGroup.add(...fieldArrows);
-projectileGroup.add(...projectiles.flatMap((projectile) => [
-  projectile.mesh,
-  projectile.velocityArrow,
-  projectile.accelerationArrow,
-  projectile.positionArrow,
-  projectile.trail,
+bodyGroup.add(...bodies.flatMap((body) => [
+  body.mesh,
+  body.velocityArrow,
+  body.separationArrow,
+  body.deltaAccelerationArrow,
+  body.trail,
 ]));
-labelGroup.add(...projectiles.map((projectile) => projectile.label));
-labelGroup.add(createStaticLabel('plano XZ', new THREE.Vector3(9.4, -1.9, 9.2), 0xc9b458));
-labelGroup.add(createStaticLabel('plano XY', new THREE.Vector3(9.6, 8.8, 0.4), 0x62c9d8));
-labelGroup.add(createStaticLabel('plano YZ', new THREE.Vector3(0.4, 8.6, 9.4), 0x9f86ff));
+labelGroup.add(...bodies.map((body) => body.label));
+for (const body of bodies) {
+  if (body.config.id === 'apple') continue;
+  const line = makeLine([new THREE.Vector3(), new THREE.Vector3()], body.config.color, 0.82);
+  connectorLines.set(body.config.id, line);
+  separationGroup.add(line);
+}
 
 mountControls();
 resetSimulation();
-setView('lab');
+setView('fall');
 requestAnimationFrame(animate);
 
 function must<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector);
-  if (!element) {
-    throw new Error(`Missing element ${selector}`);
-  }
+  if (!element) throw new Error(`Missing element ${selector}`);
   return element;
 }
 
@@ -264,7 +245,8 @@ function mountControls() {
   elements.cameraHome.innerHTML = '<i data-lucide="home"></i>';
   createIcons({ icons: { Home, Pause, Play, RotateCcw } });
 
-  elements.objectSelect.innerHTML = projectileConfigs
+  elements.objectSelect.innerHTML = bodyConfigs
+    .filter((config) => config.id !== 'apple')
     .map((config) => `<option value="${config.id}">${config.name}</option>`)
     .join('');
   elements.objectSelect.value = state.selectedId;
@@ -276,38 +258,34 @@ function mountControls() {
   elements.playToggle.addEventListener('click', () => {
     state.paused = !state.paused;
     elements.playToggle.innerHTML = state.paused ? '<i data-lucide="play"></i>' : '<i data-lucide="pause"></i>';
-    elements.playToggle.setAttribute('aria-label', state.paused ? 'Reproducir simulacion' : 'Pausar simulacion');
-    elements.playToggle.setAttribute('title', state.paused ? 'Reproducir simulacion' : 'Pausar simulacion');
+    elements.playToggle.setAttribute('aria-label', state.paused ? 'Reproducir simulación' : 'Pausar simulación');
+    elements.playToggle.setAttribute('title', state.paused ? 'Reproducir simulación' : 'Pausar simulación');
     createIcons({ icons: { Pause, Play } });
   });
 
   elements.resetSim.addEventListener('click', resetSimulation);
   elements.cameraHome.addEventListener('click', () => setView(state.view));
-
   elements.objectSelect.addEventListener('change', () => {
     state.selectedId = elements.objectSelect.value;
     updateHud();
   });
 
-  elements.launchSpeed.addEventListener('input', () => {
-    state.launchSpeed = Number(elements.launchSpeed.value);
-    elements.launchSpeedValue.value = state.launchSpeed.toFixed(1);
+  elements.fallSpeed.addEventListener('input', () => {
+    state.commonFallSpeed = Number(elements.fallSpeed.value);
+    elements.fallSpeedValue.value = state.commonFallSpeed.toFixed(1);
     resetSimulation();
   });
-
   elements.massScale.addEventListener('input', () => {
     state.massScale = Number(elements.massScale.value);
     elements.massScaleValue.value = `${state.massScale.toFixed(2)}x`;
     updateCurvature();
     updateFieldArrows();
   });
-
   elements.curvatureStrength.addEventListener('input', () => {
     state.curvatureStrength = Number(elements.curvatureStrength.value);
     elements.curvatureValue.value = `${state.curvatureStrength.toFixed(2)}x`;
     updateCurvature();
   });
-
   elements.timeScale.addEventListener('input', () => {
     state.timeScale = Number(elements.timeScale.value);
     elements.timeScaleValue.value = `${state.timeScale.toFixed(2)}x`;
@@ -316,11 +294,11 @@ function mountControls() {
   elements.showVelocity.addEventListener('change', () => {
     state.showVelocity = elements.showVelocity.checked;
   });
-  elements.showAcceleration.addEventListener('change', () => {
-    state.showAcceleration = elements.showAcceleration.checked;
+  elements.showDeltaAcceleration.addEventListener('change', () => {
+    state.showDeltaAcceleration = elements.showDeltaAcceleration.checked;
   });
-  elements.showPosition.addEventListener('change', () => {
-    state.showPosition = elements.showPosition.checked;
+  elements.showSeparation.addEventListener('change', () => {
+    state.showSeparation = elements.showSeparation.checked;
   });
   elements.showField.addEventListener('change', () => {
     state.showField = elements.showField.checked;
@@ -343,29 +321,32 @@ function setView(view: ViewMode) {
   elements.modeTitle.textContent = copyByView[view].title;
   elements.modeCopy.textContent = copyByView[view].copy;
 
-  if (view === 'lab') {
-    camera.position.set(18, 13, 24);
-    controls.target.set(0, 2.1, 0);
-  } else if (view === 'planes') {
-    camera.position.set(22, 20, 28);
-    controls.target.set(0, 1.4, 0);
+  if (view === 'fall') {
+    camera.position.set(16, 14, 24);
+    controls.target.set(0, 5.4, 0);
+  } else if (view === 'separation') {
+    const apple = getApple();
+    camera.position.copy(apple.position).add(new THREE.Vector3(7.2, 4.6, 8.8));
+    controls.target.copy(apple.position);
   } else {
-    camera.position.set(12, 8.5, 16);
-    controls.target.copy(getSelectedProjectile().position);
+    const selected = getSelectedBody();
+    camera.position.copy(getApple().position).add(new THREE.Vector3(8.2, 5.4, 10.2));
+    controls.target.copy(selected.position);
   }
   controls.update();
 }
 
 function resetSimulation() {
   state.simTime = 0;
-  for (const projectile of projectiles) {
-    projectile.position.copy(launchOrigin).add(projectile.config.offset);
-    projectile.velocity.copy(projectile.config.direction).normalize().multiplyScalar(state.launchSpeed);
-    projectile.acceleration.copy(gravityAt(projectile.position));
-    projectile.impacted = false;
-    projectile.trailPoints = [projectile.position.clone()];
-    projectile.mesh.position.copy(projectile.position);
-    updateTrail(projectile);
+  const commonVelocity = new THREE.Vector3(0, -state.commonFallSpeed, 0);
+  for (const body of bodies) {
+    body.position.copy(clusterStart).add(body.config.initialOffset);
+    body.velocity.copy(commonVelocity);
+    body.acceleration.copy(gravityAt(body.position));
+    body.initialSeparation = body.config.initialOffset.length();
+    body.trailPoints = [body.position.clone()];
+    body.mesh.position.copy(body.position);
+    updateTrail(body);
   }
   updateCurvature();
   updateFieldArrows();
@@ -377,8 +358,7 @@ function animate(now: number) {
   state.lastFrame = now;
 
   if (!state.paused) {
-    const dt = rawDt * state.timeScale;
-    advanceSimulation(dt);
+    advanceSimulation(rawDt * state.timeScale);
   }
 
   updateScene();
@@ -389,156 +369,161 @@ function animate(now: number) {
 
 function advanceSimulation(dt: number) {
   state.simTime += dt;
-  const step = Math.min(dt / 3, 0.016);
-  const iterations = Math.max(1, Math.ceil(dt / step));
+  const iterations = Math.max(1, Math.ceil(dt / 0.012));
   const subDt = dt / iterations;
 
   for (let i = 0; i < iterations; i += 1) {
-    for (const projectile of projectiles) {
-      if (projectile.impacted) continue;
-      projectile.acceleration.copy(gravityAt(projectile.position));
-      projectile.velocity.addScaledVector(projectile.acceleration, subDt);
-      projectile.position.addScaledVector(projectile.velocity, subDt);
-
-      const distance = projectile.position.length();
-      if (distance < centralRadius + 0.24) {
-        projectile.position.normalize().multiplyScalar(centralRadius + 0.24);
-        projectile.velocity.set(0, 0, 0);
-        projectile.acceleration.copy(gravityAt(projectile.position));
-        projectile.impacted = true;
+    for (const body of bodies) {
+      body.acceleration.copy(gravityAt(body.position));
+      body.velocity.addScaledVector(body.acceleration, subDt);
+      body.position.addScaledVector(body.velocity, subDt);
+      if (body.position.length() < centralRadius + 0.22) {
+        body.position.normalize().multiplyScalar(centralRadius + 0.22);
+        body.velocity.set(0, 0, 0);
       }
     }
   }
 
-  for (const projectile of projectiles) {
-    projectile.trailPoints.push(projectile.position.clone());
-    if (projectile.trailPoints.length > maxTrailPoints) {
-      projectile.trailPoints.shift();
-    }
+  for (const body of bodies) {
+    body.trailPoints.push(body.position.clone());
+    if (body.trailPoints.length > maxTrailPoints) body.trailPoints.shift();
   }
 
-  const allFinished = projectiles.every((projectile) => projectile.impacted || projectile.position.length() > 24);
-  if (state.simTime > 11.5 || allFinished) {
+  if (state.simTime > 10.5 || getApple().position.length() < centralRadius + 0.35) {
     resetSimulation();
   }
 }
 
 function updateScene() {
   centralMass.rotation.y += 0.003 * state.timeScale;
-  launchRing.rotation.z += 0.008 * state.timeScale;
+  startFrame.rotation.z += 0.006 * state.timeScale;
 
-  for (const projectile of projectiles) {
-    projectile.mesh.position.copy(projectile.position);
-    projectile.mesh.rotation.x += 0.015 + projectile.velocity.length() * 0.002;
-    projectile.mesh.rotation.y += 0.02;
-    projectile.acceleration.copy(gravityAt(projectile.position));
-    updateProjectileVectors(projectile);
-    updateTrail(projectile);
-    updateLabel(projectile);
+  for (const body of bodies) {
+    body.mesh.position.copy(body.position);
+    body.mesh.rotation.x += 0.012;
+    body.mesh.rotation.y += 0.018;
+    body.acceleration.copy(gravityAt(body.position));
+    updateBodyVectors(body);
+    updateTrail(body);
+    updateLabel(body);
   }
 
+  updateConnectors();
   updateHud();
-  updateLayerVisibility();
+  updateVisibility();
+
+  if (state.view === 'separation') {
+    const apple = getApple();
+    controls.target.lerp(apple.position, 0.12);
+  } else if (state.view === 'formula') {
+    controls.target.lerp(getSelectedBody().position, 0.08);
+  }
 }
 
-function updateProjectileVectors(projectile: Projectile) {
-  const selected = projectile.config.id === state.selectedId;
-  setArrow(projectile.velocityArrow, projectile.position, projectile.velocity, 0.62, selected ? 1.18 : 0.82);
-  setArrow(projectile.accelerationArrow, projectile.position, projectile.acceleration, 4.1, selected ? 1.18 : 0.82);
-  setArrow(projectile.positionArrow, new THREE.Vector3(0, 0, 0), projectile.position, 0.78, selected ? 1 : 0.62);
+function updateBodyVectors(body: Body) {
+  const apple = getApple();
+  const selected = body.config.id === state.selectedId;
+  const isApple = body.config.id === 'apple';
+  const separation = body.position.clone().sub(apple.position);
+  const deltaAcceleration = body.acceleration.clone().sub(apple.acceleration);
+
+  setArrow(body.velocityArrow, body.position, body.velocity, 0.68, selected || isApple ? 1.0 : 0.74);
+  setArrow(body.separationArrow, apple.position, separation, 1.1, selected ? 1.18 : 0.82);
+  setArrow(body.deltaAccelerationArrow, body.position, deltaAcceleration, 28, selected ? 1.22 : 0.86);
 }
 
-function updateLayerVisibility() {
-  const formulaFocus = state.view === 'formula';
+function updateConnectors() {
+  const apple = getApple();
+  for (const body of bodies) {
+    const line = connectorLines.get(body.config.id);
+    if (!line) continue;
+    line.geometry.dispose();
+    line.geometry = new THREE.BufferGeometry().setFromPoints([apple.position, body.position]);
+  }
+}
+
+function updateVisibility() {
   fieldGroup.visible = state.showField;
-  planeGroup.visible = true;
+  planeGroup.visible = state.showField;
 
-  for (const projectile of projectiles) {
-    const selected = projectile.config.id === state.selectedId;
-    projectile.velocityArrow.visible = state.showVelocity && (!formulaFocus || selected);
-    projectile.accelerationArrow.visible = state.showAcceleration && (!formulaFocus || selected);
-    projectile.positionArrow.visible = state.showPosition && (!formulaFocus || selected);
-    projectile.trail.visible = state.showTrails;
-    projectile.label.visible = state.view !== 'formula' || selected;
+  for (const body of bodies) {
+    const isApple = body.config.id === 'apple';
+    const selected = body.config.id === state.selectedId;
+    body.velocityArrow.visible = state.showVelocity && (state.view !== 'formula' || selected || isApple);
+    body.separationArrow.visible = state.showSeparation && !isApple && (state.view !== 'formula' || selected);
+    body.deltaAccelerationArrow.visible = state.showDeltaAcceleration && !isApple && (state.view !== 'formula' || selected);
+    body.trail.visible = state.showTrails;
+    body.label.visible = state.view !== 'formula' || selected || isApple;
+  }
+
+  for (const [id, line] of connectorLines) {
+    line.visible = state.showSeparation && (state.view !== 'formula' || id === state.selectedId);
   }
 }
 
 function updateHud() {
-  const selected = getSelectedProjectile();
-  const r = selected.position.length();
-  const v = selected.velocity.length();
-  const a = selected.acceleration.length();
-  const phi = potentialAt(selected.position);
+  const apple = getApple();
+  const selected = getSelectedBody();
+  const separation = selected.position.clone().sub(apple.position);
+  const deltaAcceleration = selected.acceleration.clone().sub(apple.acceleration);
+  const initial = Math.max(selected.initialSeparation, 0.0001);
+  const separationChange = separation.length() - initial;
+  const phi = potentialAt(apple.position);
   const phiOverC2 = phi / (visualC * visualC);
-  const temporalFactor = 1 + 2 * phiOverC2;
-  const spatialFactor = 1 - 2 * phiOverC2;
 
   elements.timeReadout.textContent = `t = ${state.simTime.toFixed(1)} s`;
-  elements.objectReadout.textContent = `objeto: ${selected.config.shortName}`;
-  elements.gravityReadout.textContent = `|a| = ${a.toFixed(2)}`;
+  elements.objectReadout.textContent = `vecino: ${selected.config.shortName}`;
+  elements.gravityReadout.textContent = `separación = ${separation.length().toFixed(2)}`;
 
-  elements.metricOneLabel.textContent = 'r del objeto';
-  elements.metricOneValue.textContent = `${r.toFixed(2)} u`;
-  elements.metricTwoLabel.textContent = '|v| actual';
-  elements.metricTwoValue.textContent = `${v.toFixed(2)} u/s`;
-  elements.metricThreeLabel.textContent = '|a| gravitatoria';
-  elements.metricThreeValue.textContent = `${a.toFixed(2)} u/s²`;
+  elements.metricOneLabel.textContent = '|ξ| actual';
+  elements.metricOneValue.textContent = `${separation.length().toFixed(3)} u`;
+  elements.metricTwoLabel.textContent = 'cambio relativo';
+  elements.metricTwoValue.textContent = `${separationChange >= 0 ? '+' : ''}${separationChange.toFixed(3)} u`;
+  elements.metricThreeLabel.textContent = '|Δa|';
+  elements.metricThreeValue.textContent = `${deltaAcceleration.length().toFixed(4)} u/s²`;
 
   elements.formulaAccel.textContent =
-    `a = (${selected.acceleration.x.toFixed(2)}, ${selected.acceleration.y.toFixed(2)}, ${selected.acceleration.z.toFixed(2)})`;
-  elements.formulaPotential.textContent = `Phi/c² = ${phiOverC2.toFixed(4)} con mu = ${mu().toFixed(1)}`;
-  elements.formulaMetric.textContent = `g_tt ≈ ${(-temporalFactor).toFixed(4)}, g_espacial ≈ ${spatialFactor.toFixed(4)}`;
-
-  if (state.view === 'formula') {
-    controls.target.lerp(selected.position, 0.08);
-  }
+    `Δa = (${deltaAcceleration.x.toFixed(4)}, ${deltaAcceleration.y.toFixed(4)}, ${deltaAcceleration.z.toFixed(4)})`;
+  elements.formulaPotential.textContent = `|ξ| = ${separation.length().toFixed(4)}; ξ = (${separation.x.toFixed(2)}, ${separation.y.toFixed(2)}, ${separation.z.toFixed(2)})`;
+  elements.formulaMetric.textContent =
+    `Phi/c²=${phiOverC2.toFixed(4)}; radial≈+2μξ/r³, lateral≈-μξ/r³`;
 }
 
 function updateCurvature() {
-  for (const plane of curvaturePlanes) {
-    const positions = plane.geometry.attributes.position;
-    const base = plane.userData.base;
-    const strength = state.curvatureStrength * state.massScale;
-
-    for (let i = 0; i < positions.count; i += 1) {
-      const x = base[i * 3];
-      const y = base[i * 3 + 1];
-      const z = base[i * 3 + 2];
-      const radius = Math.max(1.4, Math.sqrt(x * x + y * y + z * z));
-      const depression = -3.0 * strength * Math.exp(-(radius * radius) / 58);
-      const ripple = 0.08 * Math.sin(radius * 1.5 + state.simTime) * Math.exp(-radius / 12);
-
-      if (plane.userData.kind === 'xz') {
-        positions.setXYZ(i, x, y + depression + ripple, z);
-      } else if (plane.userData.kind === 'xy') {
-        positions.setXYZ(i, x, y, z + depression + ripple);
-      } else {
-        positions.setXYZ(i, x + depression + ripple, y, z);
-      }
-    }
-    positions.needsUpdate = true;
-    plane.geometry.computeVertexNormals();
+  const positions = curvaturePlane.geometry.attributes.position;
+  const base = curvaturePlane.userData.base;
+  const strength = state.curvatureStrength * state.massScale;
+  for (let i = 0; i < positions.count; i += 1) {
+    const x = base[i * 3];
+    const y = base[i * 3 + 1];
+    const z = base[i * 3 + 2];
+    const radius = Math.max(1.4, Math.sqrt(x * x + z * z));
+    const depression = -3.3 * strength * Math.exp(-(radius * radius) / 58);
+    positions.setXYZ(i, x, y + depression, z);
   }
+  positions.needsUpdate = true;
+  curvaturePlane.geometry.computeVertexNormals();
 }
 
 function updateFieldArrows() {
   for (const arrow of fieldArrows) {
     const base = arrow.userData.base as THREE.Vector3;
-    const plane = arrow.userData.plane as PlaneKind;
     const acceleration = gravityAt(base);
-    if (plane === 'xz') acceleration.y = 0;
-    if (plane === 'xy') acceleration.z = 0;
-    if (plane === 'yz') acceleration.x = 0;
-    setArrow(arrow, base, acceleration, 4.8, 0.8);
+    acceleration.y = 0;
+    setArrow(arrow, base, acceleration, 5.6, 0.76);
   }
 }
 
-function getSelectedProjectile() {
-  return projectiles.find((projectile) => projectile.config.id === state.selectedId) ?? projectiles[0];
+function getApple() {
+  return bodies[0];
+}
+
+function getSelectedBody() {
+  return bodies.find((body) => body.config.id === state.selectedId) ?? bodies[1];
 }
 
 function gravityAt(position: THREE.Vector3) {
-  const distanceSq = Math.max(position.lengthSq(), 1.1);
+  const distanceSq = Math.max(position.lengthSq(), 1.05);
   const distance = Math.sqrt(distanceSq);
   return position.clone().multiplyScalar(-mu() / (distanceSq * distance));
 }
@@ -565,15 +550,15 @@ function setArrow(
     return;
   }
   arrow.setDirection(vector.clone().normalize());
-  arrow.setLength(Math.min(length, 6.8), Math.min(0.55, Math.max(0.16, length * 0.16)), 0.18 * emphasis);
+  arrow.setLength(Math.min(length, 6.6), Math.min(0.58, Math.max(0.16, length * 0.16)), 0.18 * emphasis);
 }
 
-function createProjectile(config: ProjectileConfig): Projectile {
-  const mesh = createProjectileMesh(config);
+function createBody(config: BodyConfig): Body {
+  const mesh = createBodyMesh(config);
   const label = createLabel(config.name, config.color);
   const trail = new THREE.Line(
-    new THREE.BufferGeometry().setFromPoints([launchOrigin]),
-    new THREE.LineBasicMaterial({ color: config.color, transparent: true, opacity: 0.76 }),
+    new THREE.BufferGeometry().setFromPoints([clusterStart]),
+    new THREE.LineBasicMaterial({ color: config.color, transparent: true, opacity: 0.78 }),
   );
 
   return {
@@ -583,16 +568,16 @@ function createProjectile(config: ProjectileConfig): Projectile {
     position: new THREE.Vector3(),
     velocity: new THREE.Vector3(),
     acceleration: new THREE.Vector3(),
-    velocityArrow: new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 1, 0xffd166, 0.35, 0.16),
-    accelerationArrow: new THREE.ArrowHelper(new THREE.Vector3(0, -1, 0), new THREE.Vector3(), 1, 0xff5a5f, 0.35, 0.16),
-    positionArrow: new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), new THREE.Vector3(), 1, 0x5bc0eb, 0.35, 0.13),
+    velocityArrow: new THREE.ArrowHelper(new THREE.Vector3(0, -1, 0), new THREE.Vector3(), 1, 0xffd166, 0.35, 0.16),
+    separationArrow: new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 1, 0x5bc0eb, 0.35, 0.14),
+    deltaAccelerationArrow: new THREE.ArrowHelper(new THREE.Vector3(0, -1, 0), new THREE.Vector3(), 1, 0xff5a5f, 0.35, 0.16),
     trail,
     trailPoints: [],
-    impacted: false,
+    initialSeparation: config.initialOffset.length(),
   };
 }
 
-function createProjectileMesh(config: ProjectileConfig) {
+function createBodyMesh(config: BodyConfig) {
   const group = new THREE.Group();
   const material = new THREE.MeshStandardMaterial({
     color: config.color,
@@ -603,13 +588,13 @@ function createProjectileMesh(config: ProjectileConfig) {
   });
 
   if (config.kind === 'apple') {
-    const body = new THREE.Mesh(new THREE.SphereGeometry(0.32, 32, 18), material);
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.34, 32, 18), material);
     body.scale.set(1, 0.95, 1);
     const stem = new THREE.Mesh(
       new THREE.CylinderGeometry(0.035, 0.045, 0.24, 8),
       new THREE.MeshStandardMaterial({ color: 0x6e4020, roughness: 0.72 }),
     );
-    stem.position.y = 0.34;
+    stem.position.y = 0.35;
     stem.rotation.z = 0.25;
     const leaf = new THREE.Mesh(
       new THREE.SphereGeometry(0.11, 14, 8),
@@ -618,32 +603,22 @@ function createProjectileMesh(config: ProjectileConfig) {
     leaf.scale.set(1.55, 0.32, 0.85);
     leaf.position.set(0.16, 0.42, 0);
     group.add(body, stem, leaf);
-  } else if (config.kind === 'cube') {
-    group.add(new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.58, 0.58), material));
-  } else if (config.kind === 'cone') {
-    group.add(new THREE.Mesh(new THREE.ConeGeometry(0.36, 0.75, 28), material));
-  } else if (config.kind === 'front') {
-    const capsule = new THREE.Group();
-    const cylinder = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.62, 24), material);
-    const top = new THREE.Mesh(new THREE.SphereGeometry(0.22, 24, 12), material);
-    const bottom = top.clone();
-    top.position.y = 0.31;
-    bottom.position.y = -0.31;
-    capsule.add(cylinder, top, bottom);
-    capsule.rotation.z = Math.PI / 2;
-    group.add(capsule);
-  } else if (config.kind === 'back') {
-    group.add(new THREE.Mesh(new THREE.TetrahedronGeometry(0.45), material));
+  } else if (config.kind === 'top') {
+    group.add(new THREE.Mesh(new THREE.SphereGeometry(0.26, 24, 14), material));
+  } else if (config.kind === 'bottom') {
+    group.add(new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.46, 0.46), material));
+  } else if (config.kind === 'left') {
+    group.add(new THREE.Mesh(new THREE.TetrahedronGeometry(0.36), material));
   } else {
-    group.add(new THREE.Mesh(new THREE.SphereGeometry(0.32, 28, 16), material));
+    group.add(new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.56, 24), material));
   }
 
   const halo = new THREE.Mesh(
-    new THREE.SphereGeometry(0.55, 24, 12),
+    new THREE.SphereGeometry(config.kind === 'apple' ? 0.68 : 0.48, 24, 12),
     new THREE.MeshBasicMaterial({
       color: config.color,
       transparent: true,
-      opacity: 0.12,
+      opacity: config.kind === 'apple' ? 0.18 : 0.12,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
     }),
@@ -674,60 +649,49 @@ function createCentralMass() {
       blending: THREE.AdditiveBlending,
     }),
   );
-  const equator = new THREE.Mesh(
-    new THREE.RingGeometry(centralRadius * 1.02, centralRadius * 1.025, 128),
-    new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.32, side: THREE.DoubleSide }),
-  );
-  equator.rotation.x = Math.PI / 2;
-  group.add(core, atmosphere, equator);
+  group.add(core, atmosphere);
   return group;
 }
 
-function createLaunchRing() {
+function createStartFrame() {
+  const group = new THREE.Group();
   const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(0.95, 0.018, 12, 80),
-    new THREE.MeshBasicMaterial({ color: 0xf5f0df, transparent: true, opacity: 0.72 }),
+    new THREE.TorusGeometry(separationDistance, 0.018, 12, 90),
+    new THREE.MeshBasicMaterial({ color: 0xf5f0df, transparent: true, opacity: 0.64 }),
   );
-  ring.position.copy(launchOrigin);
+  ring.position.copy(clusterStart);
   ring.rotation.x = Math.PI / 2;
-  return ring;
+  group.add(ring);
+  group.add(makeLine([clusterStart.clone().add(new THREE.Vector3(-2, 0, 0)), clusterStart.clone().add(new THREE.Vector3(2, 0, 0))], 0x5bc0eb, 0.55));
+  group.add(makeLine([clusterStart.clone().add(new THREE.Vector3(0, -2, 0)), clusterStart.clone().add(new THREE.Vector3(0, 2, 0))], 0xffd166, 0.55));
+  return group;
 }
 
-function createCurvaturePlane(kind: PlaneKind, color: number, opacity: number): CurvaturePlane {
-  const geometry = new THREE.PlaneGeometry(22, 22, 54, 54);
-  if (kind === 'xz') geometry.rotateX(-Math.PI / 2);
-  if (kind === 'yz') geometry.rotateY(Math.PI / 2);
-
+function createCurvaturePlane(): CurvaturePlane {
+  const geometry = new THREE.PlaneGeometry(24, 24, 58, 58);
+  geometry.rotateX(-Math.PI / 2);
   const material = new THREE.MeshBasicMaterial({
-    color,
+    color: 0xc9b458,
     transparent: true,
-    opacity,
+    opacity: 0.28,
     wireframe: true,
     depthWrite: false,
     side: THREE.DoubleSide,
   });
   const plane = new THREE.Mesh(geometry, material) as CurvaturePlane;
   plane.userData.base = geometry.attributes.position.array.slice(0) as Float32Array;
-  plane.userData.kind = kind;
   return plane;
 }
 
 function createFieldArrows() {
   const arrows: THREE.ArrowHelper[] = [];
-  const coords = [-9, -6, -3, 3, 6, 9];
-  const make = (plane: PlaneKind, position: THREE.Vector3) => {
-    if (position.length() < centralRadius + 0.6) return;
-    const arrow = new THREE.ArrowHelper(new THREE.Vector3(0, -1, 0), position, 0.8, 0xf4d35e, 0.25, 0.1);
-    arrow.userData.base = position.clone();
-    arrow.userData.plane = plane;
-    arrows.push(arrow);
-  };
-
-  for (const a of coords) {
-    for (const b of coords) {
-      make('xz', new THREE.Vector3(a, 0, b));
-      make('xy', new THREE.Vector3(a, b, 0));
-      make('yz', new THREE.Vector3(0, a, b));
+  for (const x of [-9, -6, -3, 3, 6, 9]) {
+    for (const z of [-9, -6, -3, 3, 6, 9]) {
+      const position = new THREE.Vector3(x, 0, z);
+      if (position.length() < centralRadius + 0.6) continue;
+      const arrow = new THREE.ArrowHelper(new THREE.Vector3(0, -1, 0), position, 0.8, 0xf4d35e, 0.25, 0.1);
+      arrow.userData.base = position.clone();
+      arrows.push(arrow);
     }
   }
   return arrows;
@@ -736,16 +700,15 @@ function createFieldArrows() {
 function createAxes() {
   const group = new THREE.Group();
   group.add(makeLine([new THREE.Vector3(-12, 0, 0), new THREE.Vector3(12, 0, 0)], 0x5bc0eb, 0.8));
-  group.add(makeLine([new THREE.Vector3(0, -8, 0), new THREE.Vector3(0, 12, 0)], 0xffd166, 0.8));
-  group.add(makeLine([new THREE.Vector3(0, 0, -12), new THREE.Vector3(0, 0, 12)], 0xb388ff, 0.8));
-  group.add(createStaticLabel('X izquierda/derecha', new THREE.Vector3(12.4, 0, 0), 0x5bc0eb));
-  group.add(createStaticLabel('Y arriba/abajo', new THREE.Vector3(0, 12.4, 0), 0xffd166));
-  group.add(createStaticLabel('Z otros planos', new THREE.Vector3(0, 0, 12.4), 0xb388ff));
+  group.add(makeLine([new THREE.Vector3(0, -2, 0), new THREE.Vector3(0, 14, 0)], 0xffd166, 0.8));
+  group.add(makeLine([new THREE.Vector3(0, 0, -12), new THREE.Vector3(0, 0, 12)], 0xb388ff, 0.62));
+  group.add(createStaticLabel('eje lateral X', new THREE.Vector3(12.4, 0, 0), 0x5bc0eb));
+  group.add(createStaticLabel('eje radial Y', new THREE.Vector3(0, 14.4, 0), 0xffd166));
   return group;
 }
 
 function createStarField() {
-  const count = 1400;
+  const count = 1200;
   const positions = new Float32Array(count * 3);
   const colors = new Float32Array(count * 3);
   const color = new THREE.Color();
@@ -776,20 +739,20 @@ function createStarField() {
   );
 }
 
-function updateTrail(projectile: Projectile) {
-  projectile.trail.geometry.dispose();
-  projectile.trail.geometry = new THREE.BufferGeometry().setFromPoints(projectile.trailPoints);
+function updateTrail(body: Body) {
+  body.trail.geometry.dispose();
+  body.trail.geometry = new THREE.BufferGeometry().setFromPoints(body.trailPoints);
 }
 
-function updateLabel(projectile: Projectile) {
-  projectile.label.position.copy(projectile.position).add(new THREE.Vector3(0.45, 0.6, 0.25));
-  projectile.label.scale.set(4.6, 1.0, 1);
+function updateLabel(body: Body) {
+  body.label.position.copy(body.position).add(new THREE.Vector3(0.35, 0.48, 0.18));
+  body.label.scale.set(body.config.id === 'apple' ? 5.4 : 4.5, body.config.id === 'apple' ? 1.1 : 0.94, 1);
 }
 
 function createStaticLabel(text: string, position: THREE.Vector3, color: number) {
   const label = createLabel(text, color);
   label.position.copy(position);
-  label.scale.set(5.2, 1.1, 1);
+  label.scale.set(4.8, 1.0, 1);
   return label;
 }
 
@@ -798,9 +761,7 @@ function createLabel(text: string, color: number) {
   labelCanvas.width = 760;
   labelCanvas.height = 150;
   const context = labelCanvas.getContext('2d');
-  if (!context) {
-    throw new Error('Unable to create label context');
-  }
+  if (!context) throw new Error('Unable to create label context');
   context.clearRect(0, 0, labelCanvas.width, labelCanvas.height);
   context.fillStyle = 'rgba(3, 7, 12, 0.58)';
   roundRect(context, 14, 18, labelCanvas.width - 28, labelCanvas.height - 36, 22);
@@ -850,11 +811,7 @@ function roundRect(
 
 function makeLine(points: THREE.Vector3[], color: number, opacity = 1) {
   const geometry = new THREE.BufferGeometry().setFromPoints(points);
-  const material = new THREE.LineBasicMaterial({
-    color,
-    transparent: opacity < 1,
-    opacity,
-  });
+  const material = new THREE.LineBasicMaterial({ color, transparent: opacity < 1, opacity });
   return new THREE.Line(geometry, material);
 }
 

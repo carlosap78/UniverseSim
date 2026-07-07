@@ -1,22 +1,24 @@
-# UniverseSim Vector Lab
+# UniverseSim Tidal Fall Lab
 
-Laboratorio 3D para estudiar lanzamientos de una manzana y otros objetos alrededor de una masa central. El modelo anterior fue reemplazado por una visualizacion enfocada en vectores, planos de curvatura y formulas interactivas.
+Laboratorio 3D para estudiar una manzana en caída libre con objetos distribuidos arriba, abajo, izquierda y derecha. El foco es observar cómo se separan aunque todos caen bajo el mismo campo gravitatorio.
 
 ## Objetivo fisico
 
-La escena muestra seis objetos lanzados desde la misma region con velocidades iniciales distintas:
+La escena muestra una manzana como referencia y cuatro vecinos:
 
-- arriba y abajo sobre el eje radial `Y`
-- izquierda y derecha sobre el eje tangencial `X`
-- adelante y atras sobre el eje `Z`, para comparar otros planos
+- objeto arriba de la manzana
+- objeto abajo de la manzana
+- objeto a la izquierda
+- objeto a la derecha
 
-Cada objeto tiene tres vectores:
+Todos empiezan con la misma velocidad inicial de caída. Al caer, sus posiciones no evolucionan igual porque el campo gravitatorio cambia con la distancia a la masa central. Esa diferencia es el efecto tidal o desviación geodésica:
 
-- `r`: vector posicion desde el centro de la masa
-- `v`: vector velocidad instantanea
-- `a`: aceleracion gravitatoria hacia la masa
+- el vecino de abajo está más cerca de la masa y acelera más
+- el vecino de arriba está más lejos y acelera menos
+- los vecinos laterales tienden a comprimirse hacia el eje radial
+- la manzana sirve como marco de referencia local para ver la separación relativa
 
-Las mallas `XZ`, `XY` e `YZ` muestran cortes de la curvatura visual. Las flechas pequenas sobre esas mallas son el campo gravitatorio proyectado en cada plano.
+La vista `Separación` sigue a la manzana para que el cambio relativo sea más claro.
 
 ## Formulas usadas
 
@@ -24,11 +26,12 @@ La simulacion usa una aproximacion de campo debil, util para explicar visualment
 
 ```txt
 a(r) = -mu r / |r|^3
-Phi(r) = -mu / |r|
-ds² ≈ -(1 + 2 Phi/c²)c²dt² + (1 - 2 Phi/c²)dℓ²
+xi = r_vecino - r_manzana
+Delta a = a_vecino - a_manzana
+Delta a ≈ T xi, con T_ij = ∂g_i/∂x_j
 ```
 
-`mu` aumenta con el control de masa central. La curvatura visual es pedagogica: no es un integrador completo de geodesicas en Schwarzschild, pero conecta trayectorias, vectores y metrica de campo debil en una sola vista.
+`mu` aumenta con el control de masa central. La curvatura visual es pedagogica: no es un integrador completo de geodesicas en Schwarzschild, pero conecta caída libre, separación relativa y tensor tidal en una sola vista.
 
 ## Desarrollo
 
