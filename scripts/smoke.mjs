@@ -20,6 +20,8 @@ page.on('pageerror', (error) => consoleErrors.push(error.message));
 await page.goto(baseUrl, { waitUntil: 'networkidle' });
 await page.waitForTimeout(1800);
 
+const labelsDefaultChecked = await page.locator('#show-labels').isChecked();
+
 const canvasInfo = await page.evaluate(() => {
   const canvas = document.querySelector('canvas');
   if (!canvas) return null;
@@ -39,6 +41,10 @@ const desktopFall = await analyzeScreenshot('universesim-tidal-fall.png', {
   width: 670,
   height: 560,
 });
+
+await page.locator('#show-labels').check();
+await page.waitForTimeout(400);
+const labelsAfterCheck = await page.locator('#show-labels').isChecked();
 
 await page.getByRole('tab', { name: 'Separación' }).click();
 await page.waitForTimeout(900);
@@ -109,6 +115,7 @@ await browser.close();
 const result = {
   canvasInfo,
   modeTexts: { fallTitle, separationTitle, formulaTitle, formulaText, selectedObjectText },
+  labels: { labelsDefaultChecked, labelsAfterCheck },
   screenshots: [desktopFall, desktopSeparation, desktopFormula, mobileShot],
   overlapReport,
   consoleErrors,
@@ -118,6 +125,10 @@ console.log(JSON.stringify(result, null, 2));
 
 if (!canvasInfo || canvasInfo.width < 700 || canvasInfo.height < 500) {
   throw new Error('Canvas dimensions are too small');
+}
+
+if (labelsDefaultChecked || !labelsAfterCheck) {
+  throw new Error(`Label toggle should be off by default and activatable: ${JSON.stringify(result.labels)}`);
 }
 
 if (!/Objetos/.test(fallTitle) || !/Separación/.test(separationTitle) || !/Desviación/.test(formulaTitle)) {

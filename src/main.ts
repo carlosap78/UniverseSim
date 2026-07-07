@@ -104,6 +104,7 @@ const state = {
   showSeparation: true,
   showField: true,
   showTrails: true,
+  showLabels: false,
 };
 
 const copyByView: Record<ViewMode, { title: string; copy: string }> = {
@@ -142,6 +143,7 @@ const elements = {
   showSeparation: must<HTMLInputElement>('#show-position'),
   showField: must<HTMLInputElement>('#show-field'),
   showTrails: must<HTMLInputElement>('#show-trails'),
+  showLabels: must<HTMLInputElement>('#show-labels'),
   timeReadout: must<HTMLElement>('#time-readout'),
   objectReadout: must<HTMLElement>('#object-readout'),
   gravityReadout: must<HTMLElement>('#gravity-readout'),
@@ -306,6 +308,9 @@ function mountControls() {
   elements.showTrails.addEventListener('change', () => {
     state.showTrails = elements.showTrails.checked;
   });
+  elements.showLabels.addEventListener('change', () => {
+    state.showLabels = elements.showLabels.checked;
+  });
 
   window.addEventListener('resize', onResize);
 }
@@ -453,7 +458,7 @@ function updateVisibility() {
     body.separationArrow.visible = state.showSeparation && !isApple && (state.view !== 'formula' || selected);
     body.deltaAccelerationArrow.visible = state.showDeltaAcceleration && !isApple && (state.view !== 'formula' || selected);
     body.trail.visible = state.showTrails;
-    body.label.visible = state.view !== 'formula' || selected || isApple;
+    body.label.visible = state.showLabels && (state.view !== 'formula' || selected || isApple);
   }
 
   for (const [id, line] of connectorLines) {
@@ -555,7 +560,7 @@ function setArrow(
 
 function createBody(config: BodyConfig): Body {
   const mesh = createBodyMesh(config);
-  const label = createLabel(config.name, config.color);
+  const label = createLabel(config.id === 'apple' ? 'manzana' : config.shortName, config.color);
   const trail = new THREE.Line(
     new THREE.BufferGeometry().setFromPoints([clusterStart]),
     new THREE.LineBasicMaterial({ color: config.color, transparent: true, opacity: 0.78 }),
@@ -746,13 +751,13 @@ function updateTrail(body: Body) {
 
 function updateLabel(body: Body) {
   body.label.position.copy(body.position).add(new THREE.Vector3(0.35, 0.48, 0.18));
-  body.label.scale.set(body.config.id === 'apple' ? 5.4 : 4.5, body.config.id === 'apple' ? 1.1 : 0.94, 1);
+  body.label.scale.set(body.config.id === 'apple' ? 2.35 : 2.15, body.config.id === 'apple' ? 0.5 : 0.46, 1);
 }
 
 function createStaticLabel(text: string, position: THREE.Vector3, color: number) {
   const label = createLabel(text, color);
   label.position.copy(position);
-  label.scale.set(4.8, 1.0, 1);
+  label.scale.set(3.2, 0.68, 1);
   return label;
 }
 
