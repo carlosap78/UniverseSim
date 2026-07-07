@@ -15,6 +15,11 @@ type LabelSprite = THREE.Sprite & {
   };
 };
 
+type ModeMetric = {
+  label: string;
+  value: string;
+};
+
 const canvas = document.querySelector<HTMLCanvasElement>('#universe-canvas');
 if (!canvas) {
   throw new Error('Canvas #universe-canvas not found');
@@ -43,10 +48,28 @@ const explanationByMode: Record<ViewMode, { title: string; copy: string }> = {
       'La malla no es una sabana fisica: representa como las trayectorias naturales se inclinan cerca de la Tierra. La manzana cae porque su geodesica apunta hacia menor radio.',
   },
   freefall: {
-    title: 'Marco local en caida libre',
+    title: 'Manzana inerte, piso acelerado',
     copy:
-      'En un laboratorio que cae con la manzana, la manzana casi no siente aceleracion propia. El suelo de la Tierra empuja hacia arriba y se acelera contra esa geodesica.',
+      'Este es el marco local que cae con la manzana. La manzana permanece casi fija porque sigue una geodesica; el piso, sostenido por la materia de la Tierra, acelera hacia arriba hasta alcanzarla.',
   },
+};
+
+const metricsByMode: Record<ViewMode, [ModeMetric, ModeMetric, ModeMetric]> = {
+  galaxy: [
+    { label: 'Sol a centro galactico', value: '~26 000 años luz' },
+    { label: 'Marco usado', value: 'sistema solar como origen' },
+    { label: 'Lectura fisica', value: 'la galaxia queda en contexto' },
+  ],
+  curvature: [
+    { label: 'Aceleracion superficial', value: '9.8 m/s²' },
+    { label: 'Manzana', value: 'geodesica de caida libre' },
+    { label: 'Piso', value: 'linea no geodesica' },
+  ],
+  freefall: [
+    { label: 'Manzana', value: 'a propia ~ 0 m/s²' },
+    { label: 'Piso/Tierra', value: 'a propia ~ 9.8 m/s² arriba' },
+    { label: 'Movimiento', value: 'el suelo sube en este marco' },
+  ],
 };
 
 const renderer = new THREE.WebGLRenderer({
@@ -90,6 +113,7 @@ const appleStartHeight = 42;
 const appleVisualHeight = 6.4;
 const appleRadius = 0.34;
 const fallDuration = Math.sqrt((2 * appleStartHeight) / 9.81);
+const localApplePosition = new THREE.Vector3(5.2, 2.35, 0);
 
 const ambient = new THREE.AmbientLight(0x4f586f, 1.7);
 const sunLight = new THREE.PointLight(0xfff3c4, 550, 900, 1.25);
@@ -117,7 +141,7 @@ const atmosphere = createAtmosphere();
 const spacetimeGrid = createSpacetimeGrid();
 const apple = createApple();
 const accelerationArrow = createArrow(0xe65f3c, 8);
-const surfaceArrow = createArrow(0x58d38b, 6.5);
+const surfaceArrow = createArrow(0x58d38b, 3.9);
 const worldline = createWorldline();
 const localLab = createLocalLab();
 earthGroup.position.set(0, 0, 0);
@@ -130,12 +154,12 @@ const solarLabel = createLabel('Sistema solar: origen del marco', 0x8fd8ff);
 solarLabel.position.set(0, 5.5, 0);
 const earthLabel = createLabel('Tierra: superficie acelerada', 0x9bd3ff);
 earthLabel.position.set(-7.2, 6.8, 0);
-const appleLabel = createLabel('Manzana: geodesica de caida libre', 0xff7662);
+const appleLabel = createLabel('manzana inercial: a propia ~ 0', 0xff7662);
 const gridLabel = createLabel('malla = geometria efectiva del espacio-tiempo', 0xe8dd9c);
 gridLabel.position.set(9, -1.5, -8);
-const floorLabel = createLabel('suelo acelera arriba', 0x88f2a6);
-floorLabel.position.set(9, 1.8, 2);
-floorLabel.scale.set(5.8, 1.15, 1);
+const floorLabel = createLabel('piso/Tierra acelera hacia arriba', 0x88f2a6);
+floorLabel.position.set(8.7, -3.6, 2);
+floorLabel.scale.set(6.8, 1.25, 1);
 labelsGroup.add(galacticLabel, solarLabel, earthLabel, appleLabel, gridLabel, floorLabel);
 
 const clock = new THREE.Clock();
@@ -155,6 +179,12 @@ const elements = {
   timeReadout: document.querySelector<HTMLElement>('#time-readout'),
   heightReadout: document.querySelector<HTMLElement>('#height-readout'),
   frameReadout: document.querySelector<HTMLElement>('#frame-readout'),
+  metricOneLabel: document.querySelector<HTMLElement>('#metric-one-label'),
+  metricOneValue: document.querySelector<HTMLElement>('#metric-one-value'),
+  metricTwoLabel: document.querySelector<HTMLElement>('#metric-two-label'),
+  metricTwoValue: document.querySelector<HTMLElement>('#metric-two-value'),
+  metricThreeLabel: document.querySelector<HTMLElement>('#metric-three-label'),
+  metricThreeValue: document.querySelector<HTMLElement>('#metric-three-value'),
 };
 
 createIcons({
@@ -232,14 +262,25 @@ function setMode(mode: ViewMode) {
   elements.modeTitle!.textContent = explanationByMode[mode].title;
   elements.modeCopy!.textContent = explanationByMode[mode].copy;
   elements.frameReadout!.textContent = `marco: ${mode === 'freefall' ? 'caida libre' : mode === 'galaxy' ? 'solar' : 'curvatura'}`;
+  updateMetrics(mode);
 
   if (mode === 'galaxy') {
     tweenCamera(new THREE.Vector3(34, 24, 54), new THREE.Vector3(-28, -3, -22));
   } else if (mode === 'curvature') {
     tweenCamera(new THREE.Vector3(18, 12, 22), new THREE.Vector3(0, 0.6, 0));
   } else {
-    tweenCamera(new THREE.Vector3(13, 7, 14), new THREE.Vector3(1.8, -0.8, 0));
+    tweenCamera(new THREE.Vector3(12.5, 5.5, 13), new THREE.Vector3(5.4, -0.9, 0));
   }
+}
+
+function updateMetrics(mode: ViewMode) {
+  const [one, two, three] = metricsByMode[mode];
+  elements.metricOneLabel!.textContent = one.label;
+  elements.metricOneValue!.textContent = one.value;
+  elements.metricTwoLabel!.textContent = two.label;
+  elements.metricTwoValue!.textContent = two.value;
+  elements.metricThreeLabel!.textContent = three.label;
+  elements.metricThreeValue!.textContent = three.value;
 }
 
 function tweenCamera(position: THREE.Vector3, target: THREE.Vector3) {
@@ -281,20 +322,22 @@ function updateScene(dt: number) {
   accelerationArrow.lookAt(new THREE.Vector3(0, 0, 0));
   accelerationArrow.visible = state.mode === 'curvature';
 
-  surfaceArrow.position.set(5.8, -3.8 + Math.sin(t * 4.4) * 0.35, 0);
-  surfaceArrow.rotation.set(Math.PI, 0, 0);
-  surfaceArrow.visible = state.mode === 'freefall';
-
   updateSpacetimeGrid();
   updateWorldline();
-  updateLocalLab(fallT, heightMeters);
+  updateLocalLab(fallT);
   updateDynamicLabels();
   updateVisibility();
   updateReadouts(fallT, heightMeters);
 }
 
 function updateDynamicLabels() {
-  appleLabel.scale.set(state.mode === 'freefall' ? 6.8 : 8.8, state.mode === 'freefall' ? 1.4 : 1.8, 1);
+  if (state.mode === 'freefall') {
+    appleLabel.scale.set(6.2, 1.25, 1);
+    appleLabel.position.copy(localApplePosition).add(new THREE.Vector3(1.4, 1.1, 0.4));
+    return;
+  }
+
+  appleLabel.scale.set(8.8, 1.8, 1);
   appleLabel.position.copy(apple.position).add(new THREE.Vector3(1.4, 1.2, 0.5));
 }
 
@@ -304,6 +347,9 @@ function updateVisibility() {
   solarLabel.visible = state.mode === 'galaxy' && state.showLabels;
 
   earthGroup.visible = state.mode !== 'galaxy';
+  earth.visible = state.mode === 'curvature';
+  atmosphere.visible = state.mode === 'curvature';
+  spacetimeGrid.visible = state.mode === 'curvature';
   freefallGroup.visible = state.mode === 'freefall';
   earthLabel.visible = state.mode === 'curvature' && state.showLabels;
   appleLabel.visible = state.mode !== 'galaxy' && state.showLabels;
@@ -311,6 +357,7 @@ function updateVisibility() {
   floorLabel.visible = state.mode === 'freefall' && state.showLabels;
   labelsGroup.visible = state.showLabels;
   worldline.visible = state.showWorldline && state.mode === 'curvature';
+  localLab.userData.floorTrail.visible = state.showWorldline && state.mode === 'freefall';
 }
 
 function updateReadouts(fallT: number, heightMeters: number) {
@@ -558,40 +605,94 @@ function updateWorldline() {
 
 function createLocalLab() {
   const group = new THREE.Group();
+  const floorAssembly = new THREE.Group();
+  const earthBlock = new THREE.Mesh(
+    new THREE.BoxGeometry(8.8, 1.05, 5.2),
+    new THREE.MeshStandardMaterial({
+      color: 0x123a3d,
+      roughness: 0.7,
+      metalness: 0.04,
+      transparent: true,
+      opacity: 0.78,
+    }),
+  );
+  earthBlock.position.y = -0.64;
   const floor = new THREE.Mesh(
     new THREE.BoxGeometry(8.8, 0.16, 5.2),
     new THREE.MeshStandardMaterial({
-      color: 0x2f7d68,
+      color: 0x8ef0d2,
       roughness: 0.62,
       metalness: 0.04,
     }),
   );
-  floor.position.set(5.2, -5.55, 0);
-  const rails = new THREE.Group();
+  floor.position.y = 0;
+  floorAssembly.position.set(5.2, -5.55, 0);
+  floorAssembly.add(earthBlock, floor);
+
+  const referenceFrame = new THREE.Group();
   for (const x of [1.2, 9.2]) {
-    rails.add(makeLine([new THREE.Vector3(x, -5.4, -2.6), new THREE.Vector3(x, 2.6, -2.6)], 0x8be0d3, 0.58));
-    rails.add(makeLine([new THREE.Vector3(x, -5.4, 2.6), new THREE.Vector3(x, 2.6, 2.6)], 0x8be0d3, 0.58));
+    referenceFrame.add(makeLine([new THREE.Vector3(x, -5.8, -2.6), new THREE.Vector3(x, 3.0, -2.6)], 0x8be0d3, 0.58));
+    referenceFrame.add(makeLine([new THREE.Vector3(x, -5.8, 2.6), new THREE.Vector3(x, 3.0, 2.6)], 0x8be0d3, 0.58));
   }
+  for (const y of [-5.2, -3.4, -1.6, 0.2, 2.0]) {
+    referenceFrame.add(makeLine([new THREE.Vector3(1.2, y, -2.6), new THREE.Vector3(9.2, y, -2.6)], 0x376f72, 0.42));
+    referenceFrame.add(makeLine([new THREE.Vector3(1.2, y, 2.6), new THREE.Vector3(9.2, y, 2.6)], 0x376f72, 0.42));
+  }
+
+  const floorTrail = new THREE.Group();
+  for (const y of [-5.55, -4.1, -2.25, -0.15, 1.35]) {
+    const ghost = new THREE.Mesh(
+      new THREE.BoxGeometry(8.8, 0.035, 5.2),
+      new THREE.MeshBasicMaterial({
+        color: 0x8ef0d2,
+        transparent: true,
+        opacity: 0.12,
+        depthWrite: false,
+      }),
+    );
+    ghost.position.set(5.2, y, 0);
+    floorTrail.add(ghost);
+  }
+
   const localAppleTrack = makeLine(
-    [new THREE.Vector3(5.2, 2.35, 0), new THREE.Vector3(5.2, -5.15, 0)],
+    [localApplePosition.clone(), new THREE.Vector3(localApplePosition.x, -5.6, localApplePosition.z)],
     0xffc15d,
     0.72,
   );
   localAppleTrack.name = 'localAppleTrack';
-  group.add(floor, rails, localAppleTrack);
+  const inertialRing = new THREE.Mesh(
+    new THREE.TorusGeometry(0.72, 0.018, 12, 72),
+    new THREE.MeshBasicMaterial({
+      color: 0xffc15d,
+      transparent: true,
+      opacity: 0.82,
+    }),
+  );
+  inertialRing.position.copy(localApplePosition);
+  inertialRing.rotation.x = Math.PI / 2;
+
+  group.userData.floorAssembly = floorAssembly;
+  group.userData.referenceFrame = referenceFrame;
+  group.userData.floorTrail = floorTrail;
+  group.add(floorTrail, referenceFrame, localAppleTrack, inertialRing, floorAssembly);
   return group;
 }
 
-function updateLocalLab(fallT: number, heightMeters: number) {
-  const localFloor = localLab.children[0] as THREE.Mesh;
-  const upward = Math.min(1, fallT / fallDuration);
-  localFloor.position.y = -5.55 + upward * upward * 2.2;
-
-  const railGroup = localLab.children[1] as THREE.Group;
-  railGroup.position.y = localFloor.position.y + 5.55;
+function updateLocalLab(fallT: number) {
+  const floorAssembly = localLab.userData.floorAssembly as THREE.Group;
+  const progress = Math.min(1, fallT / fallDuration);
+  const easedProgress = progress * progress;
+  const floorY = -5.55 + easedProgress * 6.9;
+  floorAssembly.position.y = floorY;
 
   if (state.mode === 'freefall') {
-    apple.position.set(5.2, 2.35 - (1 - heightMeters / appleStartHeight) * 0.2, 0);
+    apple.position.copy(localApplePosition);
+    surfaceArrow.position.set(3.35, floorY + 0.24, -1.9);
+    surfaceArrow.rotation.set(Math.PI, 0, 0);
+    surfaceArrow.visible = true;
+    floorLabel.position.set(7.5, floorY + 1.35, 1.7);
+  } else {
+    surfaceArrow.visible = false;
   }
 }
 
