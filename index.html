@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Simulacion 3D de la galaxia, la Tierra y una manzana en relatividad general desde el marco del sistema solar."
+    />
+    <title>UniverseSim</title>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="universe-canvas" aria-label="Simulacion 3D de relatividad y galaxia"></canvas>
+
+      <header class="hud hud-top" aria-label="Estado de la simulacion">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <div>
+            <strong>UniverseSim</strong>
+            <span>Marco solar y relatividad general</span>
+          </div>
+        </div>
+        <div class="readouts" aria-live="polite">
+          <span id="time-readout">t = 0.0 s</span>
+          <span id="height-readout">manzana: 42 m</span>
+          <span id="frame-readout">marco: curvatura</span>
+        </div>
+      </header>
+
+      <aside class="hud control-panel" aria-label="Controles de simulacion">
+        <div class="segment" role="tablist" aria-label="Modo de visualizacion">
+          <button class="segment-button is-active" type="button" data-view="galaxy" role="tab" aria-selected="true">
+            Galaxia
+          </button>
+          <button class="segment-button" type="button" data-view="curvature" role="tab" aria-selected="false">
+            Curvatura
+          </button>
+          <button class="segment-button" type="button" data-view="freefall" role="tab" aria-selected="false">
+            Caida local
+          </button>
+        </div>
+
+        <div class="button-row" aria-label="Reproduccion">
+          <button id="play-toggle" class="icon-button" type="button" aria-label="Pausar simulacion" title="Pausar simulacion"></button>
+          <button id="reset-sim" class="icon-button" type="button" aria-label="Reiniciar manzana" title="Reiniciar manzana"></button>
+          <button id="camera-home" class="icon-button" type="button" aria-label="Centrar camara" title="Centrar camara"></button>
+        </div>
+
+        <label class="control-line" for="time-scale">
+          <span>Escala temporal</span>
+          <output id="time-scale-value" for="time-scale">1.0x</output>
+        </label>
+        <input id="time-scale" type="range" min="0.15" max="2.5" value="1" step="0.05" />
+
+        <label class="control-line" for="curvature-strength">
+          <span>Intensidad visual</span>
+          <output id="curvature-value" for="curvature-strength">1.0x</output>
+        </label>
+        <input id="curvature-strength" type="range" min="0.2" max="1.8" value="1" step="0.05" />
+
+        <label class="toggle-line" for="show-worldline">
+          <input id="show-worldline" type="checkbox" checked />
+          <span>Mostrar linea de mundo</span>
+        </label>
+
+        <label class="toggle-line" for="show-labels">
+          <input id="show-labels" type="checkbox" checked />
+          <span>Etiquetas fisicas</span>
+        </label>
+      </aside>
+
+      <section class="hud explainer" aria-label="Explicacion fisica">
+        <p id="mode-title" class="mode-title">La galaxia desde el sistema solar</p>
+        <p id="mode-copy">
+          El Sol queda fijado como origen. La Via Lactea gira alrededor de un centro desplazado a escala: asi se ve el
+          vecindario galactico sin abandonar nuestro marco de referencia.
+        </p>
+        <dl class="metrics">
+          <div>
+            <dt>Sol a centro galactico</dt>
+            <dd>~26 000 años luz</dd>
+          </div>
+          <div>
+            <dt>Aceleracion superficial</dt>
+            <dd>9.8 m/s²</dd>
+          </div>
+          <div>
+            <dt>Lectura relativista</dt>
+            <dd>la manzana sigue una geodesica</dd>
+          </div>
+        </dl>
+      </section>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
