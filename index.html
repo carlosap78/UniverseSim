@@ -5,89 +5,138 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="Simulacion 3D de la galaxia, la Tierra y una manzana en relatividad general desde el marco del sistema solar."
+      content="Laboratorio 3D de vectores, trayectorias y curvatura del espacio-tiempo en campo gravitatorio."
     />
-    <title>UniverseSim</title>
+    <title>UniverseSim Vector Lab</title>
   </head>
   <body>
     <div id="app">
-      <canvas id="universe-canvas" aria-label="Simulacion 3D de relatividad y galaxia"></canvas>
+      <canvas id="universe-canvas" aria-label="Laboratorio 3D de vectores gravitatorios"></canvas>
 
       <header class="hud hud-top" aria-label="Estado de la simulacion">
         <div class="brand">
           <span class="brand-mark" aria-hidden="true"></span>
           <div>
-            <strong>UniverseSim</strong>
-            <span>Marco solar y relatividad general</span>
+            <strong>UniverseSim Vector Lab</strong>
+            <span>Objetos lanzados, vectores y curvatura</span>
           </div>
         </div>
         <div class="readouts" aria-live="polite">
           <span id="time-readout">t = 0.0 s</span>
-          <span id="height-readout">manzana: 42 m</span>
-          <span id="frame-readout">marco: curvatura</span>
+          <span id="object-readout">objeto: manzana arriba</span>
+          <span id="gravity-readout">|a| = 0.00</span>
         </div>
       </header>
 
-      <aside class="hud control-panel" aria-label="Controles de simulacion">
-        <div class="segment" role="tablist" aria-label="Modo de visualizacion">
-          <button class="segment-button is-active" type="button" data-view="galaxy" role="tab" aria-selected="true">
-            Galaxia
+      <aside class="hud control-panel" aria-label="Controles de laboratorio vectorial">
+        <div class="segment" role="tablist" aria-label="Vista de camara">
+          <button class="segment-button is-active" type="button" data-view="lab" role="tab" aria-selected="true">
+            Laboratorio
           </button>
-          <button class="segment-button" type="button" data-view="curvature" role="tab" aria-selected="false">
-            Curvatura
+          <button class="segment-button" type="button" data-view="planes" role="tab" aria-selected="false">
+            Planos
           </button>
-          <button class="segment-button" type="button" data-view="freefall" role="tab" aria-selected="false">
-            Caida local
+          <button class="segment-button" type="button" data-view="formula" role="tab" aria-selected="false">
+            Formulas
           </button>
         </div>
 
         <div class="button-row" aria-label="Reproduccion">
           <button id="play-toggle" class="icon-button" type="button" aria-label="Pausar simulacion" title="Pausar simulacion"></button>
-          <button id="reset-sim" class="icon-button" type="button" aria-label="Reiniciar manzana" title="Reiniciar manzana"></button>
+          <button id="reset-sim" class="icon-button" type="button" aria-label="Reiniciar tiros" title="Reiniciar tiros"></button>
           <button id="camera-home" class="icon-button" type="button" aria-label="Centrar camara" title="Centrar camara"></button>
         </div>
+
+        <label class="select-line" for="object-select">
+          <span>Objeto medido</span>
+          <select id="object-select" aria-label="Objeto medido"></select>
+        </label>
+
+        <label class="control-line" for="launch-speed">
+          <span>Velocidad inicial</span>
+          <output id="launch-speed-value" for="launch-speed">3.2</output>
+        </label>
+        <input id="launch-speed" type="range" min="1.2" max="5.8" value="3.2" step="0.1" />
+
+        <label class="control-line" for="mass-scale">
+          <span>Masa central</span>
+          <output id="mass-scale-value" for="mass-scale">1.0x</output>
+        </label>
+        <input id="mass-scale" type="range" min="0.45" max="2.2" value="1" step="0.05" />
+
+        <label class="control-line" for="curvature-strength">
+          <span>Curvatura visual</span>
+          <output id="curvature-value" for="curvature-strength">1.0x</output>
+        </label>
+        <input id="curvature-strength" type="range" min="0.2" max="2.4" value="1" step="0.05" />
 
         <label class="control-line" for="time-scale">
           <span>Escala temporal</span>
           <output id="time-scale-value" for="time-scale">1.0x</output>
         </label>
-        <input id="time-scale" type="range" min="0.15" max="2.5" value="1" step="0.05" />
+        <input id="time-scale" type="range" min="0.15" max="2.6" value="1" step="0.05" />
 
-        <label class="control-line" for="curvature-strength">
-          <span>Intensidad visual</span>
-          <output id="curvature-value" for="curvature-strength">1.0x</output>
-        </label>
-        <input id="curvature-strength" type="range" min="0.2" max="1.8" value="1" step="0.05" />
-
-        <label class="toggle-line" for="show-worldline">
-          <input id="show-worldline" type="checkbox" checked />
-          <span>Mostrar rastro fisico</span>
-        </label>
-
-        <label class="toggle-line" for="show-labels">
-          <input id="show-labels" type="checkbox" checked />
-          <span>Etiquetas fisicas</span>
-        </label>
+        <div class="toggles" aria-label="Capas vectoriales">
+          <label class="toggle-line" for="show-velocity">
+            <input id="show-velocity" type="checkbox" checked />
+            <span>Velocidad v</span>
+          </label>
+          <label class="toggle-line" for="show-acceleration">
+            <input id="show-acceleration" type="checkbox" checked />
+            <span>Aceleracion a</span>
+          </label>
+          <label class="toggle-line" for="show-position">
+            <input id="show-position" type="checkbox" checked />
+            <span>Radio r</span>
+          </label>
+          <label class="toggle-line" for="show-field">
+            <input id="show-field" type="checkbox" checked />
+            <span>Campo en planos</span>
+          </label>
+          <label class="toggle-line" for="show-trails">
+            <input id="show-trails" type="checkbox" checked />
+            <span>Trayectorias</span>
+          </label>
+        </div>
       </aside>
 
-      <section class="hud explainer" aria-label="Explicacion fisica">
-        <p id="mode-title" class="mode-title">La galaxia desde el sistema solar</p>
+      <section class="hud formula-panel" aria-label="Formulas interactivas">
+        <p class="panel-title">Formulas activas</p>
+        <div class="formula-card">
+          <span class="formula-label">Campo debil</span>
+          <code>a(r) = -mu r / |r|^3</code>
+          <span id="formula-accel">a = (0, 0, 0)</span>
+        </div>
+        <div class="formula-card">
+          <span class="formula-label">Potencial</span>
+          <code>Phi(r) = -mu / |r|</code>
+          <span id="formula-potential">Phi/c² = 0</span>
+        </div>
+        <div class="formula-card">
+          <span class="formula-label">Metrica aproximada</span>
+          <code>ds² ≈ -(1+2Phi/c²)c²dt² + (1-2Phi/c²)dℓ²</code>
+          <span id="formula-metric">factor temporal = 1.000</span>
+        </div>
+      </section>
+
+      <section class="hud explainer" aria-label="Lectura fisica">
+        <p id="mode-title" class="mode-title">Vectores de cada lanzamiento</p>
         <p id="mode-copy">
-          El Sol queda fijado como origen. La Via Lactea gira alrededor de un centro desplazado a escala: asi se ve el
-          vecindario galactico sin abandonar nuestro marco de referencia.
+          Todos los objetos salen desde la misma region con velocidades iniciales distintas. La flecha amarilla es v,
+          la roja es a hacia la masa y la azul es r desde el centro.
         </p>
         <dl class="metrics">
           <div>
-            <dt id="metric-one-label">Sol a centro galactico</dt>
-            <dd id="metric-one-value">~26 000 años luz</dd>
+            <dt id="metric-one-label">r del objeto</dt>
+            <dd id="metric-one-value">0.00</dd>
           </div>
           <div>
-            <dt id="metric-two-label">Aceleracion superficial</dt>
-            <dd id="metric-two-value">9.8 m/s²</dd>
+            <dt id="metric-two-label">|v| actual</dt>
+            <dd id="metric-two-value">0.00</dd>
           </div>
           <div>
-            <dt id="metric-three-label">Lectura relativista</dt>
-            <dd id="metric-three-value">la manzana sigue una geodesica</dd>
+            <dt id="metric-three-label">|a| gravitatoria</dt>
+            <dd id="metric-three-value">0.00</dd>
           </div>
         </dl>
       </section>

@@ -1,22 +1,34 @@
-# UniverseSim
+# UniverseSim Vector Lab
 
-Simulacion 3D de la Via Lactea y de una caida de manzana cerca de la Tierra desde el marco del sistema solar.
+Laboratorio 3D para estudiar lanzamientos de una manzana y otros objetos alrededor de una masa central. El modelo anterior fue reemplazado por una visualizacion enfocada en vectores, planos de curvatura y formulas interactivas.
 
 ## Objetivo fisico
 
-La visualizacion separa tres ideas que suelen mezclarse:
+La escena muestra seis objetos lanzados desde la misma region con velocidades iniciales distintas:
 
-- **Marco solar:** el sistema solar queda fijo como origen y la galaxia se muestra desplazada respecto a ese marco.
-- **Curvatura:** la Tierra modifica la geometria efectiva; la manzana sigue una trayectoria natural o geodesica hacia menor radio.
-- **Caida local:** cerca de la superficie, un marco que cae con la manzana ve a la manzana casi sin aceleracion propia. En ese marco la manzana queda casi inerte y el piso de la Tierra sube con aceleracion propia de ~9.8 m/s².
+- arriba y abajo sobre el eje radial `Y`
+- izquierda y derecha sobre el eje tangencial `X`
+- adelante y atras sobre el eje `Z`, para comparar otros planos
 
-La malla 3D no pretende ser un calculo numerico de la metrica de Schwarzschild. Es un modelo visual pedagógico para mostrar curvatura, linea de mundo, aceleracion propia y equivalencia local.
+Cada objeto tiene tres vectores:
 
-## Que significa que la Tierra se acelera
+- `r`: vector posicion desde el centro de la masa
+- `v`: vector velocidad instantanea
+- `a`: aceleracion gravitatoria hacia la masa
 
-En relatividad general, una particula en caida libre sigue una geodesica y su acelerometro marca casi `0`. La manzana idealizada hace eso. El suelo no puede seguir esa geodesica porque la materia de la Tierra se sostiene por fuerzas electromagneticas e internas; esas fuerzas empujan cada punto de la superficie hacia afuera de la trayectoria de caida libre.
+Las mallas `XZ`, `XY` e `YZ` muestran cortes de la curvatura visual. Las flechas pequenas sobre esas mallas son el campo gravitatorio proyectado en cada plano.
 
-Por eso un acelerometro apoyado en el piso marca `9.8 m/s²`: es la aceleracion propia del piso. En el marco local que cae con la manzana, esa aceleracion se ve como el piso subiendo hasta chocar con la manzana. No es una velocidad absoluta de toda la Tierra por el espacio; es una descripcion local de la superficie desviandose de la geodesica que seguiria si no estuviera sostenida.
+## Formulas usadas
+
+La simulacion usa una aproximacion de campo debil, util para explicar visualmente la relacion entre gravedad newtoniana y relatividad general:
+
+```txt
+a(r) = -mu r / |r|^3
+Phi(r) = -mu / |r|
+ds² ≈ -(1 + 2 Phi/c²)c²dt² + (1 - 2 Phi/c²)dℓ²
+```
+
+`mu` aumenta con el control de masa central. La curvatura visual es pedagogica: no es un integrador completo de geodesicas en Schwarzschild, pero conecta trayectorias, vectores y metrica de campo debil en una sola vista.
 
 ## Desarrollo
 
@@ -40,4 +52,4 @@ npx playwright install chromium
 npm run smoke
 ```
 
-El smoke test abre la simulacion, cambia entre modos, guarda capturas en `artifacts/`, revisa que el canvas no este en negro y comprueba que los paneles no se encimen en movil.
+El smoke test abre la simulacion, cambia entre vistas, guarda capturas en `artifacts/`, revisa que el canvas no este en negro y comprueba que los paneles no se encimen en movil.

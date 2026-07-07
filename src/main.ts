@@ -3,21 +3,40 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { createIcons, Home, Pause, Play, RotateCcw } from 'lucide';
 
-type ViewMode = 'galaxy' | 'curvature' | 'freefall';
+type ViewMode = 'lab' | 'planes' | 'formula';
+type ProjectileKind = 'apple' | 'sphere' | 'cube' | 'cone' | 'front' | 'back';
+type PlaneKind = 'xz' | 'xy' | 'yz';
 
-type LabelSprite = THREE.Sprite & {
-  userData: {
-    baseScale: number;
-    canvas: HTMLCanvasElement;
-    context: CanvasRenderingContext2D;
-    texture: THREE.CanvasTexture;
-    text: string;
-  };
+type ProjectileConfig = {
+  id: string;
+  name: string;
+  shortName: string;
+  kind: ProjectileKind;
+  color: number;
+  direction: THREE.Vector3;
+  offset: THREE.Vector3;
 };
 
-type ModeMetric = {
-  label: string;
-  value: string;
+type Projectile = {
+  config: ProjectileConfig;
+  mesh: THREE.Group;
+  label: THREE.Sprite;
+  position: THREE.Vector3;
+  velocity: THREE.Vector3;
+  acceleration: THREE.Vector3;
+  velocityArrow: THREE.ArrowHelper;
+  accelerationArrow: THREE.ArrowHelper;
+  positionArrow: THREE.ArrowHelper;
+  trail: THREE.Line;
+  trailPoints: THREE.Vector3[];
+  impacted: boolean;
+};
+
+type CurvaturePlane = THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> & {
+  userData: {
+    base: Float32Array;
+    kind: PlaneKind;
+  };
 };
 
 const canvas = document.querySelector<HTMLCanvasElement>('#universe-canvas');
@@ -25,51 +44,136 @@ if (!canvas) {
   throw new Error('Canvas #universe-canvas not found');
 }
 
+const centralRadius = 3.15;
+const baseMu = 24;
+const visualC = 34;
+const maxTrailPoints = 210;
+const launchOrigin = new THREE.Vector3(0, 6.9, 0);
+
+const projectileConfigs: ProjectileConfig[] = [
+  {
+    id: 'apple-up',
+    name: 'Manzana arriba',
+    shortName: 'arriba',
+    kind: 'apple',
+    color: 0xff5548,
+    direction: new THREE.Vector3(0, 1, 0),
+    offset: new THREE.Vector3(-0.42, 0, 0),
+  },
+  {
+    id: 'sphere-down',
+    name: 'Esfera abajo',
+    shortName: 'abajo',
+    kind: 'sphere',
+    color: 0x4cc9f0,
+    direction: new THREE.Vector3(0, -1, 0),
+    offset: new THREE.Vector3(0.42, 0, 0),
+  },
+  {
+    id: 'cube-left',
+    name: 'Cubo izquierda',
+    shortName: 'izquierda',
+    kind: 'cube',
+    color: 0xffc857,
+    direction: new THREE.Vector3(-1, 0, 0),
+    offset: new THREE.Vector3(0, 0, -0.42),
+  },
+  {
+    id: 'cone-right',
+    name: 'Cono derecha',
+    shortName: 'derecha',
+    kind: 'cone',
+    color: 0x7bd88f,
+    direction: new THREE.Vector3(1, 0, 0),
+    offset: new THREE.Vector3(0, 0, 0.42),
+  },
+  {
+    id: 'front-z',
+    name: 'Capsula plano Z+',
+    shortName: 'plano Z+',
+    kind: 'front',
+    color: 0xb388ff,
+    direction: new THREE.Vector3(0, 0, 1),
+    offset: new THREE.Vector3(-0.28, 0, 0.72),
+  },
+  {
+    id: 'back-z',
+    name: 'Prisma plano Z-',
+    shortName: 'plano Z-',
+    kind: 'back',
+    color: 0x5ea1ff,
+    direction: new THREE.Vector3(0, 0, -1),
+    offset: new THREE.Vector3(0.28, 0, -0.72),
+  },
+];
+
 const state = {
-  mode: 'galaxy' as ViewMode,
+  view: 'lab' as ViewMode,
   paused: false,
-  elapsed: 0,
-  appleCycle: 0,
-  timeScale: 1,
+  simTime: 0,
+  lastFrame: performance.now(),
+  massScale: 1,
+  launchSpeed: 3.2,
   curvatureStrength: 1,
-  showWorldline: true,
-  showLabels: true,
+  timeScale: 1,
+  selectedId: 'apple-up',
+  showVelocity: true,
+  showAcceleration: true,
+  showPosition: true,
+  showField: true,
+  showTrails: true,
 };
 
-const explanationByMode: Record<ViewMode, { title: string; copy: string }> = {
-  galaxy: {
-    title: 'La galaxia desde el sistema solar',
+const copyByView: Record<ViewMode, { title: string; copy: string }> = {
+  lab: {
+    title: 'Vectores de cada lanzamiento',
     copy:
-      'El Sol queda fijado como origen. La Via Lactea gira alrededor de un centro desplazado a escala: asi se ve el vecindario galactico sin abandonar nuestro marco de referencia.',
+      'Todos los objetos salen desde la misma region con velocidades iniciales distintas. La flecha amarilla es v, la roja es a hacia la masa y la azul es r desde el centro.',
   },
-  curvature: {
-    title: 'Gravedad como geometria',
+  planes: {
+    title: 'Vectores proyectados en otros planos',
     copy:
-      'La malla no es una sabana fisica: representa como las trayectorias naturales se inclinan cerca de la Tierra. La manzana cae porque su geodesica apunta hacia menor radio.',
+      'Las mallas XZ, XY e YZ muestran la misma curvatura desde cortes diferentes. Las flechas pequeñas son el campo gravitatorio proyectado sobre cada plano.',
   },
-  freefall: {
-    title: 'Manzana inerte, piso acelerado',
+  formula: {
+    title: 'Formula y geometria conectadas',
     copy:
-      'Este es el marco local que cae con la manzana. La manzana permanece casi fija porque sigue una geodesica; el piso, sostenido por la materia de la Tierra, acelera hacia arriba hasta alcanzarla.',
+      'La simulacion usa la aproximacion de campo debil: a = -mu r/|r|^3 y una metrica visual con Phi/c². Cambia masa, velocidad y curvatura para ver como cambian los numeros.',
   },
 };
 
-const metricsByMode: Record<ViewMode, [ModeMetric, ModeMetric, ModeMetric]> = {
-  galaxy: [
-    { label: 'Sol a centro galactico', value: '~26 000 años luz' },
-    { label: 'Marco usado', value: 'sistema solar como origen' },
-    { label: 'Lectura fisica', value: 'la galaxia queda en contexto' },
-  ],
-  curvature: [
-    { label: 'Aceleracion superficial', value: '9.8 m/s²' },
-    { label: 'Manzana', value: 'geodesica de caida libre' },
-    { label: 'Piso', value: 'linea no geodesica' },
-  ],
-  freefall: [
-    { label: 'Manzana', value: 'a propia ~ 0 m/s²' },
-    { label: 'Piso/Tierra', value: 'a propia ~ 9.8 m/s² arriba' },
-    { label: 'Movimiento', value: 'el suelo sube en este marco' },
-  ],
+const elements = {
+  playToggle: must<HTMLButtonElement>('#play-toggle'),
+  resetSim: must<HTMLButtonElement>('#reset-sim'),
+  cameraHome: must<HTMLButtonElement>('#camera-home'),
+  objectSelect: must<HTMLSelectElement>('#object-select'),
+  launchSpeed: must<HTMLInputElement>('#launch-speed'),
+  launchSpeedValue: must<HTMLOutputElement>('#launch-speed-value'),
+  massScale: must<HTMLInputElement>('#mass-scale'),
+  massScaleValue: must<HTMLOutputElement>('#mass-scale-value'),
+  curvatureStrength: must<HTMLInputElement>('#curvature-strength'),
+  curvatureValue: must<HTMLOutputElement>('#curvature-value'),
+  timeScale: must<HTMLInputElement>('#time-scale'),
+  timeScaleValue: must<HTMLOutputElement>('#time-scale-value'),
+  showVelocity: must<HTMLInputElement>('#show-velocity'),
+  showAcceleration: must<HTMLInputElement>('#show-acceleration'),
+  showPosition: must<HTMLInputElement>('#show-position'),
+  showField: must<HTMLInputElement>('#show-field'),
+  showTrails: must<HTMLInputElement>('#show-trails'),
+  timeReadout: must<HTMLElement>('#time-readout'),
+  objectReadout: must<HTMLElement>('#object-readout'),
+  gravityReadout: must<HTMLElement>('#gravity-readout'),
+  modeTitle: must<HTMLElement>('#mode-title'),
+  modeCopy: must<HTMLElement>('#mode-copy'),
+  metricOneLabel: must<HTMLElement>('#metric-one-label'),
+  metricOneValue: must<HTMLElement>('#metric-one-value'),
+  metricTwoLabel: must<HTMLElement>('#metric-two-label'),
+  metricTwoValue: must<HTMLElement>('#metric-two-value'),
+  metricThreeLabel: must<HTMLElement>('#metric-three-label'),
+  metricThreeValue: must<HTMLElement>('#metric-three-value'),
+  formulaAccel: must<HTMLElement>('#formula-accel'),
+  formulaPotential: must<HTMLElement>('#formula-potential'),
+  formulaMetric: must<HTMLElement>('#formula-metric'),
 };
 
 const renderer = new THREE.WebGLRenderer({
@@ -82,673 +186,645 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.08;
+renderer.toneMappingExposure = 1.12;
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x030306);
-scene.fog = new THREE.FogExp2(0x030306, 0.006);
+scene.background = new THREE.Color(0x020308);
+scene.fog = new THREE.FogExp2(0x020308, 0.012);
 
-const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.02, 3200);
-camera.position.set(26, 16, 38);
+const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.02, 900);
+camera.position.set(18, 13, 24);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
-controls.dampingFactor = 0.06;
-controls.minDistance = 4;
-controls.maxDistance = 620;
-controls.target.set(0, 0, 0);
+controls.dampingFactor = 0.07;
+controls.minDistance = 5;
+controls.maxDistance = 80;
+controls.target.set(0, 2, 0);
 
 const root = new THREE.Group();
-const galaxyGroup = new THREE.Group();
-const earthGroup = new THREE.Group();
-const freefallGroup = new THREE.Group();
-const labelsGroup = new THREE.Group();
-root.add(galaxyGroup, earthGroup, freefallGroup, labelsGroup);
+const planeGroup = new THREE.Group();
+const fieldGroup = new THREE.Group();
+const projectileGroup = new THREE.Group();
+const labelGroup = new THREE.Group();
 scene.add(root);
+root.add(planeGroup, fieldGroup, projectileGroup, labelGroup);
 
-const galaxyCenter = new THREE.Vector3(-140, -6, -90);
-const solarOrigin = new THREE.Vector3(0, 0, 0);
-const earthRadius = 5;
-const appleStartHeight = 42;
-const appleVisualHeight = 6.4;
-const appleRadius = 0.34;
-const fallDuration = Math.sqrt((2 * appleStartHeight) / 9.81);
-const localApplePosition = new THREE.Vector3(5.2, 2.35, 0);
+scene.add(new THREE.AmbientLight(0x66707f, 1.9));
+const keyLight = new THREE.DirectionalLight(0xffffff, 3.4);
+keyLight.position.set(10, 16, 12);
+scene.add(keyLight);
+const rimLight = new THREE.PointLight(0x88d9ff, 90, 90, 1.4);
+rimLight.position.set(-8, 8, -12);
+scene.add(rimLight);
 
-const ambient = new THREE.AmbientLight(0x4f586f, 1.7);
-const sunLight = new THREE.PointLight(0xfff3c4, 550, 900, 1.25);
-sunLight.position.copy(solarOrigin);
-const earthLight = new THREE.DirectionalLight(0xcde9ff, 3.0);
-earthLight.position.set(18, 20, 24);
-scene.add(ambient, sunLight, earthLight);
+const starField = createStarField();
+const axes = createAxes();
+const centralMass = createCentralMass();
+const launchRing = createLaunchRing();
+const curvaturePlanes = [
+  createCurvaturePlane('xz', 0xc9b458, 0.28),
+  createCurvaturePlane('xy', 0x62c9d8, 0.18),
+  createCurvaturePlane('yz', 0x9f86ff, 0.18),
+];
+const fieldArrows = createFieldArrows();
+const projectiles = projectileConfigs.map(createProjectile);
 
-const textureLoader = new THREE.TextureLoader();
-const earthTexture = textureLoader.load(
-  'https://threejs.org/examples/textures/planets/earth_atmos_2048.jpg',
-);
-earthTexture.colorSpace = THREE.SRGBColorSpace;
-const earthBump = textureLoader.load('https://threejs.org/examples/textures/planets/earth_normal_2048.jpg');
-
-const galaxy = createGalaxy();
-const galacticPlane = createGalacticPlane();
-const sun = createSun();
-const solarAxes = createSolarAxes();
-const orbitRings = createOrbitRings();
-galaxyGroup.add(galaxy, galacticPlane, sun, solarAxes, orbitRings);
-
-const earth = createEarth();
-const atmosphere = createAtmosphere();
-const spacetimeGrid = createSpacetimeGrid();
-const apple = createApple();
-const accelerationArrow = createArrow(0xe65f3c, 8);
-const surfaceArrow = createArrow(0x58d38b, 3.9);
-const worldline = createWorldline();
-const localLab = createLocalLab();
-earthGroup.position.set(0, 0, 0);
-earthGroup.add(earth, atmosphere, spacetimeGrid, apple, accelerationArrow, surfaceArrow, worldline);
-freefallGroup.add(localLab);
-
-const galacticLabel = createLabel('Sagittarius A* / centro galactico', 0xf0c15d);
-galacticLabel.position.copy(galaxyCenter).add(new THREE.Vector3(0, 10, 0));
-const solarLabel = createLabel('Sistema solar: origen del marco', 0x8fd8ff);
-solarLabel.position.set(0, 5.5, 0);
-const earthLabel = createLabel('Tierra: superficie acelerada', 0x9bd3ff);
-earthLabel.position.set(-7.2, 6.8, 0);
-const appleLabel = createLabel('manzana inercial: a propia ~ 0', 0xff7662);
-const gridLabel = createLabel('malla = geometria efectiva del espacio-tiempo', 0xe8dd9c);
-gridLabel.position.set(9, -1.5, -8);
-const floorLabel = createLabel('piso/Tierra acelera hacia arriba', 0x88f2a6);
-floorLabel.position.set(8.7, -3.6, 2);
-floorLabel.scale.set(6.8, 1.25, 1);
-labelsGroup.add(galacticLabel, solarLabel, earthLabel, appleLabel, gridLabel, floorLabel);
-
-const clock = new THREE.Clock();
-
-const elements = {
-  playToggle: document.querySelector<HTMLButtonElement>('#play-toggle'),
-  resetSim: document.querySelector<HTMLButtonElement>('#reset-sim'),
-  cameraHome: document.querySelector<HTMLButtonElement>('#camera-home'),
-  timeScale: document.querySelector<HTMLInputElement>('#time-scale'),
-  timeScaleValue: document.querySelector<HTMLOutputElement>('#time-scale-value'),
-  curvatureStrength: document.querySelector<HTMLInputElement>('#curvature-strength'),
-  curvatureValue: document.querySelector<HTMLOutputElement>('#curvature-value'),
-  showWorldline: document.querySelector<HTMLInputElement>('#show-worldline'),
-  showLabels: document.querySelector<HTMLInputElement>('#show-labels'),
-  modeTitle: document.querySelector<HTMLElement>('#mode-title'),
-  modeCopy: document.querySelector<HTMLElement>('#mode-copy'),
-  timeReadout: document.querySelector<HTMLElement>('#time-readout'),
-  heightReadout: document.querySelector<HTMLElement>('#height-readout'),
-  frameReadout: document.querySelector<HTMLElement>('#frame-readout'),
-  metricOneLabel: document.querySelector<HTMLElement>('#metric-one-label'),
-  metricOneValue: document.querySelector<HTMLElement>('#metric-one-value'),
-  metricTwoLabel: document.querySelector<HTMLElement>('#metric-two-label'),
-  metricTwoValue: document.querySelector<HTMLElement>('#metric-two-value'),
-  metricThreeLabel: document.querySelector<HTMLElement>('#metric-three-label'),
-  metricThreeValue: document.querySelector<HTMLElement>('#metric-three-value'),
-};
-
-createIcons({
-  icons: { Home, Pause, Play, RotateCcw },
-  attrs: {
-    width: 18,
-    height: 18,
-    'stroke-width': 2.1,
-  },
-});
+root.add(starField, axes, centralMass, launchRing);
+planeGroup.add(...curvaturePlanes);
+fieldGroup.add(...fieldArrows);
+projectileGroup.add(...projectiles.flatMap((projectile) => [
+  projectile.mesh,
+  projectile.velocityArrow,
+  projectile.accelerationArrow,
+  projectile.positionArrow,
+  projectile.trail,
+]));
+labelGroup.add(...projectiles.map((projectile) => projectile.label));
+labelGroup.add(createStaticLabel('plano XZ', new THREE.Vector3(9.4, -1.9, 9.2), 0xc9b458));
+labelGroup.add(createStaticLabel('plano XY', new THREE.Vector3(9.6, 8.8, 0.4), 0x62c9d8));
+labelGroup.add(createStaticLabel('plano YZ', new THREE.Vector3(0.4, 8.6, 9.4), 0x9f86ff));
 
 mountControls();
-setMode('galaxy');
-animate();
+resetSimulation();
+setView('lab');
+requestAnimationFrame(animate);
+
+function must<T extends Element>(selector: string): T {
+  const element = document.querySelector<T>(selector);
+  if (!element) {
+    throw new Error(`Missing element ${selector}`);
+  }
+  return element;
+}
 
 function mountControls() {
-  if (!elements.playToggle || !elements.resetSim || !elements.cameraHome) {
-    throw new Error('Missing control buttons');
-  }
-
   elements.playToggle.innerHTML = '<i data-lucide="pause"></i>';
   elements.resetSim.innerHTML = '<i data-lucide="rotate-ccw"></i>';
   elements.cameraHome.innerHTML = '<i data-lucide="home"></i>';
   createIcons({ icons: { Home, Pause, Play, RotateCcw } });
 
+  elements.objectSelect.innerHTML = projectileConfigs
+    .map((config) => `<option value="${config.id}">${config.name}</option>`)
+    .join('');
+  elements.objectSelect.value = state.selectedId;
+
   document.querySelectorAll<HTMLButtonElement>('[data-view]').forEach((button) => {
-    button.addEventListener('click', () => setMode(button.dataset.view as ViewMode));
+    button.addEventListener('click', () => setView(button.dataset.view as ViewMode));
   });
 
   elements.playToggle.addEventListener('click', () => {
     state.paused = !state.paused;
-    elements.playToggle!.innerHTML = state.paused ? '<i data-lucide="play"></i>' : '<i data-lucide="pause"></i>';
-    elements.playToggle!.setAttribute('aria-label', state.paused ? 'Reproducir simulacion' : 'Pausar simulacion');
-    elements.playToggle!.setAttribute('title', state.paused ? 'Reproducir simulacion' : 'Pausar simulacion');
+    elements.playToggle.innerHTML = state.paused ? '<i data-lucide="play"></i>' : '<i data-lucide="pause"></i>';
+    elements.playToggle.setAttribute('aria-label', state.paused ? 'Reproducir simulacion' : 'Pausar simulacion');
+    elements.playToggle.setAttribute('title', state.paused ? 'Reproducir simulacion' : 'Pausar simulacion');
     createIcons({ icons: { Pause, Play } });
   });
 
-  elements.resetSim.addEventListener('click', () => {
-    state.appleCycle = 0;
+  elements.resetSim.addEventListener('click', resetSimulation);
+  elements.cameraHome.addEventListener('click', () => setView(state.view));
+
+  elements.objectSelect.addEventListener('change', () => {
+    state.selectedId = elements.objectSelect.value;
+    updateHud();
   });
 
-  elements.cameraHome.addEventListener('click', () => {
-    setMode(state.mode);
+  elements.launchSpeed.addEventListener('input', () => {
+    state.launchSpeed = Number(elements.launchSpeed.value);
+    elements.launchSpeedValue.value = state.launchSpeed.toFixed(1);
+    resetSimulation();
   });
 
-  elements.timeScale?.addEventListener('input', () => {
-    state.timeScale = Number(elements.timeScale!.value);
-    elements.timeScaleValue!.value = `${state.timeScale.toFixed(2)}x`;
+  elements.massScale.addEventListener('input', () => {
+    state.massScale = Number(elements.massScale.value);
+    elements.massScaleValue.value = `${state.massScale.toFixed(2)}x`;
+    updateCurvature();
+    updateFieldArrows();
   });
 
-  elements.curvatureStrength?.addEventListener('input', () => {
-    state.curvatureStrength = Number(elements.curvatureStrength!.value);
-    elements.curvatureValue!.value = `${state.curvatureStrength.toFixed(2)}x`;
+  elements.curvatureStrength.addEventListener('input', () => {
+    state.curvatureStrength = Number(elements.curvatureStrength.value);
+    elements.curvatureValue.value = `${state.curvatureStrength.toFixed(2)}x`;
+    updateCurvature();
   });
 
-  elements.showWorldline?.addEventListener('change', () => {
-    state.showWorldline = elements.showWorldline!.checked;
+  elements.timeScale.addEventListener('input', () => {
+    state.timeScale = Number(elements.timeScale.value);
+    elements.timeScaleValue.value = `${state.timeScale.toFixed(2)}x`;
   });
 
-  elements.showLabels?.addEventListener('change', () => {
-    state.showLabels = elements.showLabels!.checked;
+  elements.showVelocity.addEventListener('change', () => {
+    state.showVelocity = elements.showVelocity.checked;
+  });
+  elements.showAcceleration.addEventListener('change', () => {
+    state.showAcceleration = elements.showAcceleration.checked;
+  });
+  elements.showPosition.addEventListener('change', () => {
+    state.showPosition = elements.showPosition.checked;
+  });
+  elements.showField.addEventListener('change', () => {
+    state.showField = elements.showField.checked;
+  });
+  elements.showTrails.addEventListener('change', () => {
+    state.showTrails = elements.showTrails.checked;
   });
 
   window.addEventListener('resize', onResize);
 }
 
-function setMode(mode: ViewMode) {
-  state.mode = mode;
+function setView(view: ViewMode) {
+  state.view = view;
   document.querySelectorAll<HTMLButtonElement>('[data-view]').forEach((button) => {
-    const selected = button.dataset.view === mode;
+    const selected = button.dataset.view === view;
     button.classList.toggle('is-active', selected);
     button.setAttribute('aria-selected', String(selected));
   });
 
-  elements.modeTitle!.textContent = explanationByMode[mode].title;
-  elements.modeCopy!.textContent = explanationByMode[mode].copy;
-  elements.frameReadout!.textContent = `marco: ${mode === 'freefall' ? 'caida libre' : mode === 'galaxy' ? 'solar' : 'curvatura'}`;
-  updateMetrics(mode);
+  elements.modeTitle.textContent = copyByView[view].title;
+  elements.modeCopy.textContent = copyByView[view].copy;
 
-  if (mode === 'galaxy') {
-    tweenCamera(new THREE.Vector3(34, 24, 54), new THREE.Vector3(-28, -3, -22));
-  } else if (mode === 'curvature') {
-    tweenCamera(new THREE.Vector3(18, 12, 22), new THREE.Vector3(0, 0.6, 0));
+  if (view === 'lab') {
+    camera.position.set(18, 13, 24);
+    controls.target.set(0, 2.1, 0);
+  } else if (view === 'planes') {
+    camera.position.set(22, 20, 28);
+    controls.target.set(0, 1.4, 0);
   } else {
-    tweenCamera(new THREE.Vector3(12.5, 5.5, 13), new THREE.Vector3(5.4, -0.9, 0));
+    camera.position.set(12, 8.5, 16);
+    controls.target.copy(getSelectedProjectile().position);
   }
-}
-
-function updateMetrics(mode: ViewMode) {
-  const [one, two, three] = metricsByMode[mode];
-  elements.metricOneLabel!.textContent = one.label;
-  elements.metricOneValue!.textContent = one.value;
-  elements.metricTwoLabel!.textContent = two.label;
-  elements.metricTwoValue!.textContent = two.value;
-  elements.metricThreeLabel!.textContent = three.label;
-  elements.metricThreeValue!.textContent = three.value;
-}
-
-function tweenCamera(position: THREE.Vector3, target: THREE.Vector3) {
-  camera.position.copy(position);
-  controls.target.copy(target);
   controls.update();
 }
 
-function animate() {
-  const dt = Math.min(clock.getDelta(), 0.05);
+function resetSimulation() {
+  state.simTime = 0;
+  for (const projectile of projectiles) {
+    projectile.position.copy(launchOrigin).add(projectile.config.offset);
+    projectile.velocity.copy(projectile.config.direction).normalize().multiplyScalar(state.launchSpeed);
+    projectile.acceleration.copy(gravityAt(projectile.position));
+    projectile.impacted = false;
+    projectile.trailPoints = [projectile.position.clone()];
+    projectile.mesh.position.copy(projectile.position);
+    updateTrail(projectile);
+  }
+  updateCurvature();
+  updateFieldArrows();
+  updateHud();
+}
+
+function animate(now: number) {
+  const rawDt = Math.min((now - state.lastFrame) / 1000, 0.05);
+  state.lastFrame = now;
+
   if (!state.paused) {
-    state.elapsed += dt * state.timeScale;
-    state.appleCycle = (state.appleCycle + dt * state.timeScale) % (fallDuration + 1.4);
+    const dt = rawDt * state.timeScale;
+    advanceSimulation(dt);
   }
 
-  updateScene(dt);
+  updateScene();
   controls.update();
   renderer.render(scene, camera);
   requestAnimationFrame(animate);
 }
 
-function updateScene(dt: number) {
-  const t = state.elapsed;
-  galaxyGroup.rotation.y += dt * 0.014 * state.timeScale;
-  galaxy.rotation.y = Math.sin(t * 0.04) * 0.018;
-  galacticPlane.rotation.z = -0.12 + Math.sin(t * 0.05) * 0.015;
-  earth.rotation.y += dt * 0.18 * state.timeScale;
-  atmosphere.rotation.y -= dt * 0.04 * state.timeScale;
+function advanceSimulation(dt: number) {
+  state.simTime += dt;
+  const step = Math.min(dt / 3, 0.016);
+  const iterations = Math.max(1, Math.ceil(dt / step));
+  const subDt = dt / iterations;
 
-  const fallT = Math.min(state.appleCycle, fallDuration);
-  const heightMeters = Math.max(0, appleStartHeight - 0.5 * 9.81 * fallT * fallT);
-  const normalizedHeight = heightMeters / appleStartHeight;
-  const radialDistance = earthRadius + appleRadius + normalizedHeight * appleVisualHeight;
-  const orbitAngle = -0.42 + Math.sin(t * 0.2) * 0.08;
-  apple.position.set(Math.sin(orbitAngle) * 1.35, radialDistance, Math.cos(orbitAngle) * 1.35);
-  apple.rotation.y += dt * 2.8;
-  apple.rotation.x += dt * 1.4;
-  accelerationArrow.position.copy(apple.position).add(new THREE.Vector3(0, -1.0, 0));
-  accelerationArrow.lookAt(new THREE.Vector3(0, 0, 0));
-  accelerationArrow.visible = state.mode === 'curvature';
+  for (let i = 0; i < iterations; i += 1) {
+    for (const projectile of projectiles) {
+      if (projectile.impacted) continue;
+      projectile.acceleration.copy(gravityAt(projectile.position));
+      projectile.velocity.addScaledVector(projectile.acceleration, subDt);
+      projectile.position.addScaledVector(projectile.velocity, subDt);
 
-  updateSpacetimeGrid();
-  updateWorldline();
-  updateLocalLab(fallT);
-  updateDynamicLabels();
-  updateVisibility();
-  updateReadouts(fallT, heightMeters);
+      const distance = projectile.position.length();
+      if (distance < centralRadius + 0.24) {
+        projectile.position.normalize().multiplyScalar(centralRadius + 0.24);
+        projectile.velocity.set(0, 0, 0);
+        projectile.acceleration.copy(gravityAt(projectile.position));
+        projectile.impacted = true;
+      }
+    }
+  }
+
+  for (const projectile of projectiles) {
+    projectile.trailPoints.push(projectile.position.clone());
+    if (projectile.trailPoints.length > maxTrailPoints) {
+      projectile.trailPoints.shift();
+    }
+  }
+
+  const allFinished = projectiles.every((projectile) => projectile.impacted || projectile.position.length() > 24);
+  if (state.simTime > 11.5 || allFinished) {
+    resetSimulation();
+  }
 }
 
-function updateDynamicLabels() {
-  if (state.mode === 'freefall') {
-    appleLabel.scale.set(6.2, 1.25, 1);
-    appleLabel.position.copy(localApplePosition).add(new THREE.Vector3(1.4, 1.1, 0.4));
+function updateScene() {
+  centralMass.rotation.y += 0.003 * state.timeScale;
+  launchRing.rotation.z += 0.008 * state.timeScale;
+
+  for (const projectile of projectiles) {
+    projectile.mesh.position.copy(projectile.position);
+    projectile.mesh.rotation.x += 0.015 + projectile.velocity.length() * 0.002;
+    projectile.mesh.rotation.y += 0.02;
+    projectile.acceleration.copy(gravityAt(projectile.position));
+    updateProjectileVectors(projectile);
+    updateTrail(projectile);
+    updateLabel(projectile);
+  }
+
+  updateHud();
+  updateLayerVisibility();
+}
+
+function updateProjectileVectors(projectile: Projectile) {
+  const selected = projectile.config.id === state.selectedId;
+  setArrow(projectile.velocityArrow, projectile.position, projectile.velocity, 0.62, selected ? 1.18 : 0.82);
+  setArrow(projectile.accelerationArrow, projectile.position, projectile.acceleration, 4.1, selected ? 1.18 : 0.82);
+  setArrow(projectile.positionArrow, new THREE.Vector3(0, 0, 0), projectile.position, 0.78, selected ? 1 : 0.62);
+}
+
+function updateLayerVisibility() {
+  const formulaFocus = state.view === 'formula';
+  fieldGroup.visible = state.showField;
+  planeGroup.visible = true;
+
+  for (const projectile of projectiles) {
+    const selected = projectile.config.id === state.selectedId;
+    projectile.velocityArrow.visible = state.showVelocity && (!formulaFocus || selected);
+    projectile.accelerationArrow.visible = state.showAcceleration && (!formulaFocus || selected);
+    projectile.positionArrow.visible = state.showPosition && (!formulaFocus || selected);
+    projectile.trail.visible = state.showTrails;
+    projectile.label.visible = state.view !== 'formula' || selected;
+  }
+}
+
+function updateHud() {
+  const selected = getSelectedProjectile();
+  const r = selected.position.length();
+  const v = selected.velocity.length();
+  const a = selected.acceleration.length();
+  const phi = potentialAt(selected.position);
+  const phiOverC2 = phi / (visualC * visualC);
+  const temporalFactor = 1 + 2 * phiOverC2;
+  const spatialFactor = 1 - 2 * phiOverC2;
+
+  elements.timeReadout.textContent = `t = ${state.simTime.toFixed(1)} s`;
+  elements.objectReadout.textContent = `objeto: ${selected.config.shortName}`;
+  elements.gravityReadout.textContent = `|a| = ${a.toFixed(2)}`;
+
+  elements.metricOneLabel.textContent = 'r del objeto';
+  elements.metricOneValue.textContent = `${r.toFixed(2)} u`;
+  elements.metricTwoLabel.textContent = '|v| actual';
+  elements.metricTwoValue.textContent = `${v.toFixed(2)} u/s`;
+  elements.metricThreeLabel.textContent = '|a| gravitatoria';
+  elements.metricThreeValue.textContent = `${a.toFixed(2)} u/s²`;
+
+  elements.formulaAccel.textContent =
+    `a = (${selected.acceleration.x.toFixed(2)}, ${selected.acceleration.y.toFixed(2)}, ${selected.acceleration.z.toFixed(2)})`;
+  elements.formulaPotential.textContent = `Phi/c² = ${phiOverC2.toFixed(4)} con mu = ${mu().toFixed(1)}`;
+  elements.formulaMetric.textContent = `g_tt ≈ ${(-temporalFactor).toFixed(4)}, g_espacial ≈ ${spatialFactor.toFixed(4)}`;
+
+  if (state.view === 'formula') {
+    controls.target.lerp(selected.position, 0.08);
+  }
+}
+
+function updateCurvature() {
+  for (const plane of curvaturePlanes) {
+    const positions = plane.geometry.attributes.position;
+    const base = plane.userData.base;
+    const strength = state.curvatureStrength * state.massScale;
+
+    for (let i = 0; i < positions.count; i += 1) {
+      const x = base[i * 3];
+      const y = base[i * 3 + 1];
+      const z = base[i * 3 + 2];
+      const radius = Math.max(1.4, Math.sqrt(x * x + y * y + z * z));
+      const depression = -3.0 * strength * Math.exp(-(radius * radius) / 58);
+      const ripple = 0.08 * Math.sin(radius * 1.5 + state.simTime) * Math.exp(-radius / 12);
+
+      if (plane.userData.kind === 'xz') {
+        positions.setXYZ(i, x, y + depression + ripple, z);
+      } else if (plane.userData.kind === 'xy') {
+        positions.setXYZ(i, x, y, z + depression + ripple);
+      } else {
+        positions.setXYZ(i, x + depression + ripple, y, z);
+      }
+    }
+    positions.needsUpdate = true;
+    plane.geometry.computeVertexNormals();
+  }
+}
+
+function updateFieldArrows() {
+  for (const arrow of fieldArrows) {
+    const base = arrow.userData.base as THREE.Vector3;
+    const plane = arrow.userData.plane as PlaneKind;
+    const acceleration = gravityAt(base);
+    if (plane === 'xz') acceleration.y = 0;
+    if (plane === 'xy') acceleration.z = 0;
+    if (plane === 'yz') acceleration.x = 0;
+    setArrow(arrow, base, acceleration, 4.8, 0.8);
+  }
+}
+
+function getSelectedProjectile() {
+  return projectiles.find((projectile) => projectile.config.id === state.selectedId) ?? projectiles[0];
+}
+
+function gravityAt(position: THREE.Vector3) {
+  const distanceSq = Math.max(position.lengthSq(), 1.1);
+  const distance = Math.sqrt(distanceSq);
+  return position.clone().multiplyScalar(-mu() / (distanceSq * distance));
+}
+
+function potentialAt(position: THREE.Vector3) {
+  return -mu() / Math.max(position.length(), 1.05);
+}
+
+function mu() {
+  return baseMu * state.massScale;
+}
+
+function setArrow(
+  arrow: THREE.ArrowHelper,
+  origin: THREE.Vector3,
+  vector: THREE.Vector3,
+  visualScale: number,
+  emphasis = 1,
+) {
+  const length = vector.length() * visualScale * emphasis;
+  arrow.position.copy(origin);
+  if (length < 0.001) {
+    arrow.setLength(0.001, 0.001, 0.001);
     return;
   }
-
-  appleLabel.scale.set(8.8, 1.8, 1);
-  appleLabel.position.copy(apple.position).add(new THREE.Vector3(1.4, 1.2, 0.5));
+  arrow.setDirection(vector.clone().normalize());
+  arrow.setLength(Math.min(length, 6.8), Math.min(0.55, Math.max(0.16, length * 0.16)), 0.18 * emphasis);
 }
 
-function updateVisibility() {
-  galaxyGroup.visible = state.mode === 'galaxy';
-  galacticLabel.visible = state.mode === 'galaxy' && state.showLabels;
-  solarLabel.visible = state.mode === 'galaxy' && state.showLabels;
+function createProjectile(config: ProjectileConfig): Projectile {
+  const mesh = createProjectileMesh(config);
+  const label = createLabel(config.name, config.color);
+  const trail = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([launchOrigin]),
+    new THREE.LineBasicMaterial({ color: config.color, transparent: true, opacity: 0.76 }),
+  );
 
-  earthGroup.visible = state.mode !== 'galaxy';
-  earth.visible = state.mode === 'curvature';
-  atmosphere.visible = state.mode === 'curvature';
-  spacetimeGrid.visible = state.mode === 'curvature';
-  freefallGroup.visible = state.mode === 'freefall';
-  earthLabel.visible = state.mode === 'curvature' && state.showLabels;
-  appleLabel.visible = state.mode !== 'galaxy' && state.showLabels;
-  gridLabel.visible = state.mode === 'curvature' && state.showLabels;
-  floorLabel.visible = state.mode === 'freefall' && state.showLabels;
-  labelsGroup.visible = state.showLabels;
-  worldline.visible = state.showWorldline && state.mode === 'curvature';
-  localLab.userData.floorTrail.visible = state.showWorldline && state.mode === 'freefall';
+  return {
+    config,
+    mesh,
+    label,
+    position: new THREE.Vector3(),
+    velocity: new THREE.Vector3(),
+    acceleration: new THREE.Vector3(),
+    velocityArrow: new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 1, 0xffd166, 0.35, 0.16),
+    accelerationArrow: new THREE.ArrowHelper(new THREE.Vector3(0, -1, 0), new THREE.Vector3(), 1, 0xff5a5f, 0.35, 0.16),
+    positionArrow: new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), new THREE.Vector3(), 1, 0x5bc0eb, 0.35, 0.13),
+    trail,
+    trailPoints: [],
+    impacted: false,
+  };
 }
 
-function updateReadouts(fallT: number, heightMeters: number) {
-  elements.timeReadout!.textContent = `t = ${fallT.toFixed(1)} s`;
-  elements.heightReadout!.textContent = `manzana: ${heightMeters.toFixed(1)} m`;
-}
+function createProjectileMesh(config: ProjectileConfig) {
+  const group = new THREE.Group();
+  const material = new THREE.MeshStandardMaterial({
+    color: config.color,
+    roughness: 0.5,
+    metalness: 0.08,
+    emissive: config.color,
+    emissiveIntensity: 0.08,
+  });
 
-function createGalaxy() {
-  const count = 18000;
-  const positions = new Float32Array(count * 3);
-  const colors = new Float32Array(count * 3);
-  const color = new THREE.Color();
-
-  for (let i = 0; i < count; i += 1) {
-    const radius = Math.pow(Math.random(), 0.58) * 170 + 8;
-    const arm = i % 4;
-    const spin = radius * 0.043;
-    const angle = arm * Math.PI * 0.5 + spin + randomSpread(0.34);
-    const band = randomSpread(5.2) * (1 - radius / 240);
-    const x = galaxyCenter.x + Math.cos(angle) * radius + randomSpread(4.2);
-    const z = galaxyCenter.z + Math.sin(angle) * radius + randomSpread(4.2);
-    const y = galaxyCenter.y + band + randomSpread(1.2);
-
-    positions[i * 3] = x;
-    positions[i * 3 + 1] = y;
-    positions[i * 3 + 2] = z;
-
-    const core = Math.max(0, 1 - radius / 170);
-    const blue = Math.random() > 0.75 ? 0.32 : 0;
-    color.setHSL(0.08 + blue, 0.42 + Math.random() * 0.3, 0.52 + core * 0.26);
-    colors[i * 3] = color.r;
-    colors[i * 3 + 1] = color.g;
-    colors[i * 3 + 2] = color.b;
+  if (config.kind === 'apple') {
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.32, 32, 18), material);
+    body.scale.set(1, 0.95, 1);
+    const stem = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.035, 0.045, 0.24, 8),
+      new THREE.MeshStandardMaterial({ color: 0x6e4020, roughness: 0.72 }),
+    );
+    stem.position.y = 0.34;
+    stem.rotation.z = 0.25;
+    const leaf = new THREE.Mesh(
+      new THREE.SphereGeometry(0.11, 14, 8),
+      new THREE.MeshStandardMaterial({ color: 0x51b36a, roughness: 0.56 }),
+    );
+    leaf.scale.set(1.55, 0.32, 0.85);
+    leaf.position.set(0.16, 0.42, 0);
+    group.add(body, stem, leaf);
+  } else if (config.kind === 'cube') {
+    group.add(new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.58, 0.58), material));
+  } else if (config.kind === 'cone') {
+    group.add(new THREE.Mesh(new THREE.ConeGeometry(0.36, 0.75, 28), material));
+  } else if (config.kind === 'front') {
+    const capsule = new THREE.Group();
+    const cylinder = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.62, 24), material);
+    const top = new THREE.Mesh(new THREE.SphereGeometry(0.22, 24, 12), material);
+    const bottom = top.clone();
+    top.position.y = 0.31;
+    bottom.position.y = -0.31;
+    capsule.add(cylinder, top, bottom);
+    capsule.rotation.z = Math.PI / 2;
+    group.add(capsule);
+  } else if (config.kind === 'back') {
+    group.add(new THREE.Mesh(new THREE.TetrahedronGeometry(0.45), material));
+  } else {
+    group.add(new THREE.Mesh(new THREE.SphereGeometry(0.32, 28, 16), material));
   }
 
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-
-  const material = new THREE.PointsMaterial({
-    size: 0.78,
-    sizeAttenuation: true,
-    vertexColors: true,
-    transparent: true,
-    opacity: 0.92,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-  });
-
-  return new THREE.Points(geometry, material);
-}
-
-function createGalacticPlane() {
-  const geometry = new THREE.RingGeometry(42, 178, 160, 1);
-  const material = new THREE.MeshBasicMaterial({
-    color: 0x335c67,
-    transparent: true,
-    opacity: 0.14,
-    side: THREE.DoubleSide,
-    depthWrite: false,
-  });
-  const plane = new THREE.Mesh(geometry, material);
-  plane.position.copy(galaxyCenter);
-  plane.rotation.x = Math.PI / 2;
-  return plane;
-}
-
-function createSun() {
-  const group = new THREE.Group();
-  const sunGeometry = new THREE.SphereGeometry(1.45, 48, 24);
-  const sunMaterial = new THREE.MeshStandardMaterial({
-    color: 0xffd773,
-    emissive: 0xffa124,
-    emissiveIntensity: 3.2,
-    roughness: 0.46,
-  });
-  const star = new THREE.Mesh(sunGeometry, sunMaterial);
   const halo = new THREE.Mesh(
-    new THREE.SphereGeometry(3.4, 48, 24),
+    new THREE.SphereGeometry(0.55, 24, 12),
     new THREE.MeshBasicMaterial({
-      color: 0xffd173,
+      color: config.color,
       transparent: true,
-      opacity: 0.13,
+      opacity: 0.12,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
     }),
   );
-  group.add(star, halo);
+  group.add(halo);
   return group;
 }
 
-function createSolarAxes() {
+function createCentralMass() {
   const group = new THREE.Group();
-  group.add(makeLine([new THREE.Vector3(-18, 0, 0), new THREE.Vector3(18, 0, 0)], 0x71dbd4, 0.9));
-  group.add(makeLine([new THREE.Vector3(0, -18, 0), new THREE.Vector3(0, 18, 0)], 0xd2a03d, 0.7));
-  group.add(makeLine([new THREE.Vector3(0, 0, -18), new THREE.Vector3(0, 0, 18)], 0xcd6b57, 0.7));
-  return group;
-}
-
-function createOrbitRings() {
-  const group = new THREE.Group();
-  [5, 8, 12, 16].forEach((radius, index) => {
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(radius - 0.015, radius + 0.015, 120),
-      new THREE.MeshBasicMaterial({
-        color: index % 2 === 0 ? 0x6aaeb8 : 0xd4b45c,
-        transparent: true,
-        opacity: 0.35,
-        side: THREE.DoubleSide,
-      }),
-    );
-    ring.rotation.x = Math.PI / 2;
-    group.add(ring);
-  });
-  return group;
-}
-
-function createEarth() {
-  const material = new THREE.MeshStandardMaterial({
-    map: earthTexture,
-    normalMap: earthBump,
-    normalScale: new THREE.Vector2(0.75, 0.75),
-    roughness: 0.65,
-    metalness: 0.02,
-  });
-  return new THREE.Mesh(new THREE.SphereGeometry(earthRadius, 96, 48), material);
-}
-
-function createAtmosphere() {
-  return new THREE.Mesh(
-    new THREE.SphereGeometry(earthRadius * 1.035, 96, 48),
+  const core = new THREE.Mesh(
+    new THREE.SphereGeometry(centralRadius, 72, 36),
+    new THREE.MeshStandardMaterial({
+      color: 0x1f5e7a,
+      roughness: 0.58,
+      metalness: 0.05,
+      emissive: 0x082338,
+      emissiveIntensity: 0.45,
+    }),
+  );
+  const atmosphere = new THREE.Mesh(
+    new THREE.SphereGeometry(centralRadius * 1.035, 72, 36),
     new THREE.MeshBasicMaterial({
-      color: 0x78c7ff,
+      color: 0x68c7ff,
       transparent: true,
       opacity: 0.16,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
     }),
   );
+  const equator = new THREE.Mesh(
+    new THREE.RingGeometry(centralRadius * 1.02, centralRadius * 1.025, 128),
+    new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.32, side: THREE.DoubleSide }),
+  );
+  equator.rotation.x = Math.PI / 2;
+  group.add(core, atmosphere, equator);
+  return group;
 }
 
-function createSpacetimeGrid() {
-  const resolution = 58;
-  const size = 26;
-  const geometry = new THREE.PlaneGeometry(size, size, resolution, resolution);
-  geometry.rotateX(-Math.PI / 2);
+function createLaunchRing() {
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(0.95, 0.018, 12, 80),
+    new THREE.MeshBasicMaterial({ color: 0xf5f0df, transparent: true, opacity: 0.72 }),
+  );
+  ring.position.copy(launchOrigin);
+  ring.rotation.x = Math.PI / 2;
+  return ring;
+}
+
+function createCurvaturePlane(kind: PlaneKind, color: number, opacity: number): CurvaturePlane {
+  const geometry = new THREE.PlaneGeometry(22, 22, 54, 54);
+  if (kind === 'xz') geometry.rotateX(-Math.PI / 2);
+  if (kind === 'yz') geometry.rotateY(Math.PI / 2);
+
   const material = new THREE.MeshBasicMaterial({
-    color: 0xe5cc79,
+    color,
     transparent: true,
-    opacity: 0.38,
+    opacity,
     wireframe: true,
     depthWrite: false,
+    side: THREE.DoubleSide,
   });
-  const grid = new THREE.Mesh(geometry, material);
-  grid.position.y = -earthRadius * 0.52;
-  grid.userData.original = geometry.attributes.position.array.slice(0);
-  return grid;
+  const plane = new THREE.Mesh(geometry, material) as CurvaturePlane;
+  plane.userData.base = geometry.attributes.position.array.slice(0) as Float32Array;
+  plane.userData.kind = kind;
+  return plane;
 }
 
-function updateSpacetimeGrid() {
-  const geometry = spacetimeGrid.geometry as THREE.PlaneGeometry;
-  const positions = geometry.attributes.position;
-  const original = spacetimeGrid.userData.original as Float32Array;
-  const strength = state.curvatureStrength;
-
-  for (let i = 0; i < positions.count; i += 1) {
-    const x = original[i * 3];
-    const y = original[i * 3 + 1];
-    const z = original[i * 3 + 2];
-    const r = Math.sqrt(x * x + z * z);
-    const depression = -strength * 4.8 * Math.exp(-(r * r) / 48);
-    const ripple = Math.sin(r * 1.25 - state.elapsed * 2.4) * 0.1 * strength * Math.exp(-r / 15);
-    positions.setXYZ(i, x, y + depression + ripple, z);
-  }
-
-  positions.needsUpdate = true;
-  geometry.computeVertexNormals();
-}
-
-function createApple() {
-  const group = new THREE.Group();
-  const body = new THREE.Mesh(
-    new THREE.SphereGeometry(appleRadius, 32, 18),
-    new THREE.MeshStandardMaterial({
-      color: 0xc9392f,
-      roughness: 0.48,
-      metalness: 0.02,
-    }),
-  );
-  body.scale.set(1, 0.94, 1);
-  const stem = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.035, 0.05, 0.28, 8),
-    new THREE.MeshStandardMaterial({ color: 0x6a3f24, roughness: 0.8 }),
-  );
-  stem.position.y = 0.36;
-  stem.rotation.z = 0.25;
-  const leaf = new THREE.Mesh(
-    new THREE.SphereGeometry(0.12, 16, 8),
-    new THREE.MeshStandardMaterial({ color: 0x3f9e5a, roughness: 0.56 }),
-  );
-  leaf.scale.set(1.5, 0.35, 0.8);
-  leaf.position.set(0.16, 0.43, 0);
-  leaf.rotation.z = -0.52;
-  group.add(body, stem, leaf);
-  return group;
-}
-
-function createArrow(color: number, length: number) {
-  const group = new THREE.Group();
-  const shaft = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.055, 0.055, length, 16),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.88 }),
-  );
-  shaft.position.y = -length / 2;
-  const head = new THREE.Mesh(
-    new THREE.ConeGeometry(0.22, 0.66, 24),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95 }),
-  );
-  head.position.y = -length - 0.26;
-  group.add(shaft, head);
-  return group;
-}
-
-function createWorldline() {
-  const points: THREE.Vector3[] = [];
-  for (let i = 0; i < 120; i += 1) {
-    const p = i / 119;
-    const h = appleStartHeight - 0.5 * 9.81 * Math.pow(p * fallDuration, 2);
-    const normalizedHeight = Math.max(0, h / appleStartHeight);
-    points.push(
-      new THREE.Vector3(
-        -1.9 + p * 1.1,
-        earthRadius + appleRadius + normalizedHeight * appleVisualHeight,
-        -1.2 + p * 2.2,
-      ),
-    );
-  }
-  return makeLine(points, 0xff705b, 1);
-}
-
-function updateWorldline() {
-  const material = worldline.material as THREE.LineBasicMaterial;
-  material.opacity = state.showWorldline ? 0.82 : 0;
-}
-
-function createLocalLab() {
-  const group = new THREE.Group();
-  const floorAssembly = new THREE.Group();
-  const earthBlock = new THREE.Mesh(
-    new THREE.BoxGeometry(8.8, 1.05, 5.2),
-    new THREE.MeshStandardMaterial({
-      color: 0x123a3d,
-      roughness: 0.7,
-      metalness: 0.04,
-      transparent: true,
-      opacity: 0.78,
-    }),
-  );
-  earthBlock.position.y = -0.64;
-  const floor = new THREE.Mesh(
-    new THREE.BoxGeometry(8.8, 0.16, 5.2),
-    new THREE.MeshStandardMaterial({
-      color: 0x8ef0d2,
-      roughness: 0.62,
-      metalness: 0.04,
-    }),
-  );
-  floor.position.y = 0;
-  floorAssembly.position.set(5.2, -5.55, 0);
-  floorAssembly.add(earthBlock, floor);
-
-  const referenceFrame = new THREE.Group();
-  for (const x of [1.2, 9.2]) {
-    referenceFrame.add(makeLine([new THREE.Vector3(x, -5.8, -2.6), new THREE.Vector3(x, 3.0, -2.6)], 0x8be0d3, 0.58));
-    referenceFrame.add(makeLine([new THREE.Vector3(x, -5.8, 2.6), new THREE.Vector3(x, 3.0, 2.6)], 0x8be0d3, 0.58));
-  }
-  for (const y of [-5.2, -3.4, -1.6, 0.2, 2.0]) {
-    referenceFrame.add(makeLine([new THREE.Vector3(1.2, y, -2.6), new THREE.Vector3(9.2, y, -2.6)], 0x376f72, 0.42));
-    referenceFrame.add(makeLine([new THREE.Vector3(1.2, y, 2.6), new THREE.Vector3(9.2, y, 2.6)], 0x376f72, 0.42));
-  }
-
-  const floorTrail = new THREE.Group();
-  for (const y of [-5.55, -4.1, -2.25, -0.15, 1.35]) {
-    const ghost = new THREE.Mesh(
-      new THREE.BoxGeometry(8.8, 0.035, 5.2),
-      new THREE.MeshBasicMaterial({
-        color: 0x8ef0d2,
-        transparent: true,
-        opacity: 0.12,
-        depthWrite: false,
-      }),
-    );
-    ghost.position.set(5.2, y, 0);
-    floorTrail.add(ghost);
-  }
-
-  const localAppleTrack = makeLine(
-    [localApplePosition.clone(), new THREE.Vector3(localApplePosition.x, -5.6, localApplePosition.z)],
-    0xffc15d,
-    0.72,
-  );
-  localAppleTrack.name = 'localAppleTrack';
-  const inertialRing = new THREE.Mesh(
-    new THREE.TorusGeometry(0.72, 0.018, 12, 72),
-    new THREE.MeshBasicMaterial({
-      color: 0xffc15d,
-      transparent: true,
-      opacity: 0.82,
-    }),
-  );
-  inertialRing.position.copy(localApplePosition);
-  inertialRing.rotation.x = Math.PI / 2;
-
-  group.userData.floorAssembly = floorAssembly;
-  group.userData.referenceFrame = referenceFrame;
-  group.userData.floorTrail = floorTrail;
-  group.add(floorTrail, referenceFrame, localAppleTrack, inertialRing, floorAssembly);
-  return group;
-}
-
-function updateLocalLab(fallT: number) {
-  const floorAssembly = localLab.userData.floorAssembly as THREE.Group;
-  const progress = Math.min(1, fallT / fallDuration);
-  const easedProgress = progress * progress;
-  const floorY = -5.55 + easedProgress * 6.9;
-  floorAssembly.position.y = floorY;
-
-  if (state.mode === 'freefall') {
-    apple.position.copy(localApplePosition);
-    surfaceArrow.position.set(3.35, floorY + 0.24, -1.9);
-    surfaceArrow.rotation.set(Math.PI, 0, 0);
-    surfaceArrow.visible = true;
-    floorLabel.position.set(7.5, floorY + 1.35, 1.7);
-  } else {
-    surfaceArrow.visible = false;
-  }
-}
-
-function makeLine(points: THREE.Vector3[], color: number, opacity = 1) {
-  const geometry = new THREE.BufferGeometry().setFromPoints(points);
-  const material = new THREE.LineBasicMaterial({
-    color,
-    transparent: opacity < 1,
-    opacity,
-  });
-  return new THREE.Line(geometry, material);
-}
-
-function createLabel(text: string, color: number): LabelSprite {
-  const canvasEl = document.createElement('canvas');
-  canvasEl.width = 768;
-  canvasEl.height = 160;
-  const context = canvasEl.getContext('2d');
-  if (!context) {
-    throw new Error('Unable to create label canvas context');
-  }
-  const texture = new THREE.CanvasTexture(canvasEl);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  const material = new THREE.SpriteMaterial({
-    map: texture,
-    transparent: true,
-    depthWrite: false,
-  });
-  const sprite = new THREE.Sprite(material) as LabelSprite;
-  sprite.userData = {
-    baseScale: 5.6,
-    canvas: canvasEl,
-    context,
-    texture,
-    text,
+function createFieldArrows() {
+  const arrows: THREE.ArrowHelper[] = [];
+  const coords = [-9, -6, -3, 3, 6, 9];
+  const make = (plane: PlaneKind, position: THREE.Vector3) => {
+    if (position.length() < centralRadius + 0.6) return;
+    const arrow = new THREE.ArrowHelper(new THREE.Vector3(0, -1, 0), position, 0.8, 0xf4d35e, 0.25, 0.1);
+    arrow.userData.base = position.clone();
+    arrow.userData.plane = plane;
+    arrows.push(arrow);
   };
-  drawLabel(sprite, text, color);
-  sprite.scale.set(8.8, 1.8, 1);
-  return sprite;
+
+  for (const a of coords) {
+    for (const b of coords) {
+      make('xz', new THREE.Vector3(a, 0, b));
+      make('xy', new THREE.Vector3(a, b, 0));
+      make('yz', new THREE.Vector3(0, a, b));
+    }
+  }
+  return arrows;
 }
 
-function drawLabel(sprite: LabelSprite, text: string, color: number) {
-  const { canvas: canvasEl, context, texture } = sprite.userData;
-  context.clearRect(0, 0, canvasEl.width, canvasEl.height);
-  context.fillStyle = 'rgba(3, 5, 8, 0.58)';
-  roundRect(context, 14, 18, canvasEl.width - 28, canvasEl.height - 36, 24);
+function createAxes() {
+  const group = new THREE.Group();
+  group.add(makeLine([new THREE.Vector3(-12, 0, 0), new THREE.Vector3(12, 0, 0)], 0x5bc0eb, 0.8));
+  group.add(makeLine([new THREE.Vector3(0, -8, 0), new THREE.Vector3(0, 12, 0)], 0xffd166, 0.8));
+  group.add(makeLine([new THREE.Vector3(0, 0, -12), new THREE.Vector3(0, 0, 12)], 0xb388ff, 0.8));
+  group.add(createStaticLabel('X izquierda/derecha', new THREE.Vector3(12.4, 0, 0), 0x5bc0eb));
+  group.add(createStaticLabel('Y arriba/abajo', new THREE.Vector3(0, 12.4, 0), 0xffd166));
+  group.add(createStaticLabel('Z otros planos', new THREE.Vector3(0, 0, 12.4), 0xb388ff));
+  return group;
+}
+
+function createStarField() {
+  const count = 1400;
+  const positions = new Float32Array(count * 3);
+  const colors = new Float32Array(count * 3);
+  const color = new THREE.Color();
+  for (let i = 0; i < count; i += 1) {
+    const radius = 70 + Math.random() * 180;
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
+    positions[i * 3 + 1] = radius * Math.cos(phi);
+    positions[i * 3 + 2] = radius * Math.sin(phi) * Math.sin(theta);
+    color.setHSL(0.55 + Math.random() * 0.12, 0.24, 0.58 + Math.random() * 0.26);
+    colors[i * 3] = color.r;
+    colors[i * 3 + 1] = color.g;
+    colors[i * 3 + 2] = color.b;
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  return new THREE.Points(
+    geometry,
+    new THREE.PointsMaterial({
+      size: 0.55,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.74,
+      depthWrite: false,
+    }),
+  );
+}
+
+function updateTrail(projectile: Projectile) {
+  projectile.trail.geometry.dispose();
+  projectile.trail.geometry = new THREE.BufferGeometry().setFromPoints(projectile.trailPoints);
+}
+
+function updateLabel(projectile: Projectile) {
+  projectile.label.position.copy(projectile.position).add(new THREE.Vector3(0.45, 0.6, 0.25));
+  projectile.label.scale.set(4.6, 1.0, 1);
+}
+
+function createStaticLabel(text: string, position: THREE.Vector3, color: number) {
+  const label = createLabel(text, color);
+  label.position.copy(position);
+  label.scale.set(5.2, 1.1, 1);
+  return label;
+}
+
+function createLabel(text: string, color: number) {
+  const labelCanvas = document.createElement('canvas');
+  labelCanvas.width = 760;
+  labelCanvas.height = 150;
+  const context = labelCanvas.getContext('2d');
+  if (!context) {
+    throw new Error('Unable to create label context');
+  }
+  context.clearRect(0, 0, labelCanvas.width, labelCanvas.height);
+  context.fillStyle = 'rgba(3, 7, 12, 0.58)';
+  roundRect(context, 14, 18, labelCanvas.width - 28, labelCanvas.height - 36, 22);
   context.fill();
   context.strokeStyle = `#${color.toString(16).padStart(6, '0')}`;
   context.lineWidth = 4;
-  roundRect(context, 14, 18, canvasEl.width - 28, canvasEl.height - 36, 24);
+  roundRect(context, 14, 18, labelCanvas.width - 28, labelCanvas.height - 36, 22);
   context.stroke();
-  context.fillStyle = '#f6f1e3';
-  context.font = '500 42px Inter, system-ui, sans-serif';
+  context.fillStyle = '#fff7df';
+  context.font = '600 39px Inter, system-ui, sans-serif';
   context.textBaseline = 'middle';
-  context.fillText(text, 46, canvasEl.height / 2);
-  texture.needsUpdate = true;
+  context.fillText(text, 46, labelCanvas.height / 2);
+
+  const texture = new THREE.CanvasTexture(labelCanvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: texture,
+      transparent: true,
+      depthWrite: false,
+    }),
+  );
+  sprite.scale.set(5.2, 1.1, 1);
+  return sprite;
 }
 
 function roundRect(
@@ -772,8 +848,14 @@ function roundRect(
   context.closePath();
 }
 
-function randomSpread(amount: number) {
-  return (Math.random() - 0.5) * amount;
+function makeLine(points: THREE.Vector3[], color: number, opacity = 1) {
+  const geometry = new THREE.BufferGeometry().setFromPoints(points);
+  const material = new THREE.LineBasicMaterial({
+    color,
+    transparent: opacity < 1,
+    opacity,
+  });
+  return new THREE.Line(geometry, material);
 }
 
 function onResize() {

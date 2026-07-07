@@ -18,7 +18,7 @@ page.on('console', (message) => {
 page.on('pageerror', (error) => consoleErrors.push(error.message));
 
 await page.goto(baseUrl, { waitUntil: 'networkidle' });
-await page.waitForTimeout(2200);
+await page.waitForTimeout(1800);
 
 const canvasInfo = await page.evaluate(() => {
   const canvas = document.querySelector('canvas');
@@ -32,29 +32,33 @@ const canvasInfo = await page.evaluate(() => {
   };
 });
 
-const desktopGalaxy = await analyzeScreenshot('universesim-desktop-galaxy.png', {
-  x: 420,
-  y: 110,
-  width: 860,
-  height: 560,
-});
-
-await page.getByRole('tab', { name: 'Curvatura' }).click();
-await page.waitForTimeout(1000);
-const curvatureText = await page.locator('#mode-title').innerText();
-const desktopCurvature = await analyzeScreenshot('universesim-desktop-curvature.png', {
+const labTitle = await page.locator('#mode-title').innerText();
+const desktopLab = await analyzeScreenshot('universesim-vector-lab.png', {
   x: 390,
   y: 110,
-  width: 700,
+  width: 670,
   height: 560,
 });
 
-await page.getByRole('tab', { name: 'Caida local' }).click();
-await page.waitForTimeout(1000);
-const freefallText = await page.locator('#mode-title').innerText();
-const freefallHeight = await page.locator('#height-readout').innerText();
-const desktopFreefall = await analyzeScreenshot('universesim-desktop-freefall.png', {
-  x: 360,
+await page.getByRole('tab', { name: 'Planos' }).click();
+await page.waitForTimeout(900);
+const planesTitle = await page.locator('#mode-title').innerText();
+const desktopPlanes = await analyzeScreenshot('universesim-vector-planes.png', {
+  x: 350,
+  y: 110,
+  width: 760,
+  height: 560,
+});
+
+await page.getByRole('tab', { name: 'Formulas' }).click();
+await page.waitForTimeout(900);
+await page.selectOption('#object-select', 'front-z');
+await page.waitForTimeout(500);
+const formulaTitle = await page.locator('#mode-title').innerText();
+const formulaText = await page.locator('#formula-accel').innerText();
+const selectedObjectText = await page.locator('#object-readout').innerText();
+const desktopFormula = await analyzeScreenshot('universesim-vector-formulas.png', {
+  x: 350,
   y: 110,
   width: 760,
   height: 560,
@@ -62,25 +66,27 @@ const desktopFreefall = await analyzeScreenshot('universesim-desktop-freefall.pn
 
 await page.setViewportSize({ width: 390, height: 844 });
 await page.waitForTimeout(800);
-const mobileShot = await analyzeScreenshot('universesim-mobile.png', {
-  x: 20,
-  y: 160,
-  width: 350,
-  height: 360,
+const mobileShot = await analyzeScreenshot('universesim-vector-mobile.png', {
+  x: 18,
+  y: 134,
+  width: 354,
+  height: 320,
 });
 const overlapReport = await page.evaluate(() => {
-  const boxes = Array.from(document.querySelectorAll('.hud')).map((element) => {
-    const rect = element.getBoundingClientRect();
-    return {
-      cls: element.className,
-      left: rect.left,
-      top: rect.top,
-      right: rect.right,
-      bottom: rect.bottom,
-      width: rect.width,
-      height: rect.height,
-    };
-  });
+  const boxes = Array.from(document.querySelectorAll('.hud'))
+    .filter((element) => getComputedStyle(element).display !== 'none')
+    .map((element) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        cls: element.className,
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+      };
+    });
   const overlaps = [];
 
   for (let i = 0; i < boxes.length; i += 1) {
@@ -102,8 +108,8 @@ await browser.close();
 
 const result = {
   canvasInfo,
-  modeTexts: { curvatureText, freefallText, freefallHeight },
-  screenshots: [desktopGalaxy, desktopCurvature, desktopFreefall, mobileShot],
+  modeTexts: { labTitle, planesTitle, formulaTitle, formulaText, selectedObjectText },
+  screenshots: [desktopLab, desktopPlanes, desktopFormula, mobileShot],
   overlapReport,
   consoleErrors,
 };
@@ -112,6 +118,18 @@ console.log(JSON.stringify(result, null, 2));
 
 if (!canvasInfo || canvasInfo.width < 700 || canvasInfo.height < 500) {
   throw new Error('Canvas dimensions are too small');
+}
+
+if (!/Vectores/.test(labTitle) || !/planos/i.test(planesTitle) || !/Formula/i.test(formulaTitle)) {
+  throw new Error(`Unexpected mode titles: ${JSON.stringify(result.modeTexts)}`);
+}
+
+if (!formulaText.includes('a =')) {
+  throw new Error('Formula panel did not update acceleration text');
+}
+
+if (!selectedObjectText.includes('plano Z+')) {
+  throw new Error(`Object selector did not update the measured object: ${selectedObjectText}`);
 }
 
 for (const shot of result.screenshots) {

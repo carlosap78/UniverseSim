@@ -2,10 +2,8 @@
   color-scheme: dark;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  line-height: 1.4;
-  font-weight: 400;
-  color: #f5f0df;
-  background: #030306;
+  color: #f7f1dd;
+  background: #020308;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -24,7 +22,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -33,9 +32,9 @@ input {
   inset: 0;
   min-height: 100vh;
   background:
-    radial-gradient(circle at 70% 20%, rgba(109, 124, 109, 0.12), transparent 28rem),
-    radial-gradient(circle at 20% 84%, rgba(166, 87, 62, 0.12), transparent 24rem),
-    #030306;
+    radial-gradient(circle at 72% 22%, rgba(91, 192, 235, 0.13), transparent 28rem),
+    radial-gradient(circle at 24% 76%, rgba(255, 209, 102, 0.12), transparent 24rem),
+    #020308;
 }
 
 #universe-canvas {
@@ -49,11 +48,12 @@ input {
 
 .hud {
   position: absolute;
-  color: #f5f0df;
+  color: #f7f1dd;
   backdrop-filter: blur(18px);
-  background: rgba(7, 10, 14, 0.66);
-  border: 1px solid rgba(232, 221, 156, 0.18);
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.28);
+  background: rgba(4, 8, 14, 0.72);
+  border: 1px solid rgba(247, 241, 221, 0.14);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.32);
+  border-radius: 8px;
 }
 
 .hud-top {
@@ -66,14 +66,13 @@ input {
   justify-content: space-between;
   gap: 16px;
   padding: 12px 14px;
-  border-radius: 8px;
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 12px;
   min-width: 0;
+  gap: 12px;
 }
 
 .brand-mark {
@@ -82,11 +81,12 @@ input {
   flex: 0 0 auto;
   border-radius: 50%;
   background:
-    linear-gradient(120deg, transparent 38%, rgba(255, 225, 132, 0.9) 40%, transparent 44%),
-    radial-gradient(circle at 52% 50%, #ffcf72 0 10%, transparent 11%),
-    radial-gradient(circle at 50% 50%, transparent 0 43%, #77d7d1 44% 48%, transparent 49%),
-    #10161a;
-  border: 1px solid rgba(124, 217, 205, 0.42);
+    linear-gradient(90deg, transparent 44%, rgba(255, 209, 102, 0.9) 45% 55%, transparent 56%),
+    linear-gradient(0deg, transparent 44%, rgba(91, 192, 235, 0.9) 45% 55%, transparent 56%),
+    radial-gradient(circle at 50% 50%, #ff5548 0 10%, transparent 11%),
+    radial-gradient(circle at 50% 50%, transparent 0 43%, #b388ff 44% 48%, transparent 49%),
+    #091018;
+  border: 1px solid rgba(91, 192, 235, 0.48);
 }
 
 .brand strong {
@@ -98,7 +98,7 @@ input {
 .brand span:not(.brand-mark) {
   display: block;
   margin-top: 2px;
-  color: #c9c0a8;
+  color: #c8c1ad;
   font-size: 0.82rem;
   white-space: nowrap;
 }
@@ -111,14 +111,14 @@ input {
 }
 
 .readouts span {
-  min-width: 104px;
+  min-width: 118px;
   min-height: 32px;
   display: inline-grid;
   place-items: center;
   padding: 6px 10px;
-  border: 1px solid rgba(136, 242, 166, 0.18);
-  background: rgba(11, 18, 20, 0.72);
-  color: #e9dfc7;
+  border: 1px solid rgba(123, 216, 143, 0.2);
+  background: rgba(7, 17, 22, 0.76);
+  color: #eae0c5;
   font-size: 0.8rem;
   border-radius: 6px;
   white-space: nowrap;
@@ -127,11 +127,10 @@ input {
 .control-panel {
   left: 16px;
   bottom: 16px;
-  width: min(360px, calc(100vw - 32px));
+  width: min(382px, calc(100vw - 32px));
   display: grid;
-  gap: 14px;
+  gap: 12px;
   padding: 14px;
-  border-radius: 8px;
 }
 
 .segment {
@@ -140,8 +139,8 @@ input {
   min-height: 42px;
   padding: 3px;
   gap: 3px;
-  background: rgba(245, 240, 223, 0.07);
-  border: 1px solid rgba(245, 240, 223, 0.1);
+  background: rgba(247, 241, 221, 0.07);
+  border: 1px solid rgba(247, 241, 221, 0.1);
   border-radius: 7px;
 }
 
@@ -149,17 +148,17 @@ input {
   min-width: 0;
   border: 0;
   border-radius: 5px;
-  color: #cfc5ae;
+  color: #d4cab0;
   background: transparent;
   cursor: pointer;
-  font-size: clamp(0.76rem, 2.5vw, 0.88rem);
+  font-size: clamp(0.76rem, 2.4vw, 0.88rem);
   white-space: nowrap;
 }
 
 .segment-button.is-active {
-  color: #07100e;
-  background: #88d9c6;
-  box-shadow: 0 8px 24px rgba(136, 217, 198, 0.22);
+  color: #06100f;
+  background: #7bd88f;
+  box-shadow: 0 8px 24px rgba(123, 216, 143, 0.24);
 }
 
 .button-row {
@@ -172,39 +171,56 @@ input {
   height: 42px;
   display: inline-grid;
   place-items: center;
-  border: 1px solid rgba(245, 240, 223, 0.14);
+  border: 1px solid rgba(247, 241, 221, 0.14);
   border-radius: 7px;
-  color: #f5f0df;
-  background: rgba(245, 240, 223, 0.08);
+  color: #f7f1dd;
+  background: rgba(247, 241, 221, 0.08);
   cursor: pointer;
 }
 
 .icon-button:hover,
 .segment-button:hover {
-  border-color: rgba(245, 240, 223, 0.26);
-  background-color: rgba(245, 240, 223, 0.14);
+  border-color: rgba(247, 241, 221, 0.26);
+  background-color: rgba(247, 241, 221, 0.14);
 }
 
+.select-line,
 .control-line,
 .toggle-line {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  color: #d7ceb8;
+  color: #d9cfb7;
   font-size: 0.88rem;
 }
 
+.select-line select {
+  min-width: 168px;
+  height: 34px;
+  color: #f7f1dd;
+  background: rgba(7, 17, 22, 0.9);
+  border: 1px solid rgba(91, 192, 235, 0.22);
+  border-radius: 6px;
+  padding: 0 8px;
+}
+
 .control-line output {
-  min-width: 4.2rem;
+  min-width: 4.8rem;
   text-align: right;
-  color: #88d9c6;
+  color: #7bd88f;
   font-variant-numeric: tabular-nums;
 }
 
 input[type="range"] {
   width: 100%;
-  accent-color: #d8a33f;
+  accent-color: #ffcf61;
+}
+
+.toggles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px 12px;
 }
 
 .toggle-line {
@@ -214,22 +230,58 @@ input[type="range"] {
 .toggle-line input {
   width: 18px;
   height: 18px;
-  accent-color: #88d9c6;
+  accent-color: #7bd88f;
 }
 
-.explainer {
+.formula-panel {
+  top: 100px;
   right: 16px;
-  bottom: 16px;
-  width: min(420px, calc(100vw - 32px));
-  padding: 16px;
-  border-radius: 8px;
+  width: min(444px, calc(100vw - 32px));
+  padding: 14px;
 }
 
+.panel-title,
 .mode-title {
   margin: 0 0 8px;
   color: #fff6dc;
   font-size: 1rem;
   font-weight: 700;
+}
+
+.formula-card {
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid rgba(91, 192, 235, 0.18);
+  background: rgba(247, 241, 221, 0.055);
+  border-radius: 6px;
+}
+
+.formula-card + .formula-card {
+  margin-top: 8px;
+}
+
+.formula-label {
+  color: #9eb7c1;
+  font-size: 0.68rem;
+}
+
+.formula-card code {
+  color: #ffcf61;
+  font-size: 0.82rem;
+  white-space: normal;
+}
+
+.formula-card span:last-child {
+  color: #e9dfc7;
+  font-size: 0.8rem;
+}
+
+.explainer {
+  right: 16px;
+  bottom: 16px;
+  width: min(444px, calc(100vw - 32px));
+  padding: 16px;
 }
 
 .explainer p:not(.mode-title) {
@@ -248,8 +300,8 @@ input[type="range"] {
 .metrics div {
   min-width: 0;
   padding: 10px;
-  background: rgba(245, 240, 223, 0.06);
-  border: 1px solid rgba(245, 240, 223, 0.1);
+  background: rgba(247, 241, 221, 0.06);
+  border: 1px solid rgba(247, 241, 221, 0.1);
   border-radius: 6px;
 }
 
@@ -264,16 +316,7 @@ input[type="range"] {
   font-size: 0.78rem;
 }
 
-@media (max-width: 900px) {
-  body {
-    overflow: auto;
-  }
-
-  #app {
-    position: fixed;
-    min-height: 100vh;
-  }
-
+@media (max-width: 940px) {
   .hud-top {
     align-items: flex-start;
     flex-direction: column;
@@ -283,19 +326,30 @@ input[type="range"] {
     justify-content: flex-start;
   }
 
-  .control-panel,
-  .explainer {
+  .formula-panel {
+    top: 134px;
     left: 12px;
     right: 12px;
     width: auto;
-  }
-
-  .control-panel {
-    bottom: 12px;
+    max-height: 252px;
+    overflow-y: auto;
   }
 
   .explainer {
-    bottom: 264px;
+    display: none;
+  }
+
+  .control-panel {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    width: auto;
+    gap: 9px;
+    padding: 10px;
+  }
+
+  .toggles {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
@@ -312,33 +366,44 @@ input[type="range"] {
   }
 
   .readouts span {
-    min-width: 88px;
+    min-width: 92px;
+    font-size: 0.72rem;
+  }
+
+  .formula-panel {
+    top: 134px;
+    max-height: 322px;
+    padding: 12px;
+  }
+
+  .formula-card {
+    padding: 8px;
+  }
+
+  .formula-card code {
     font-size: 0.72rem;
   }
 
   .control-panel {
-    gap: 10px;
-    padding: 10px;
+    max-height: 336px;
+    overflow-y: auto;
   }
 
   .segment {
     min-height: 38px;
   }
 
-  .explainer {
-    top: 136px;
-    bottom: 322px;
-    overflow-y: auto;
-    padding: 12px;
+  .select-line {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 6px;
   }
 
-  .metrics {
-    grid-template-columns: 1fr;
+  .select-line select {
+    width: 100%;
   }
-}
 
-@media (max-width: 360px) {
-  .explainer {
-    top: 156px;
+  .toggles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
